@@ -1,0 +1,193 @@
+diff -bNur 0002lighting/data_bulk.c 0003index-buffer/data_bulk.c
+--- 0002lighting/data_bulk.c	2019-03-02 20:06:22.813345353 -0600
++++ 0003index-buffer/data_bulk.c	2019-03-02 20:06:22.813345353 -0600
+@@ -14,22 +14,12 @@
+      {0.0f, 2.0f / 3.0f},
+      {1.0f, 0.0f, 0.0f, 0.0f},
+      {0, 0, 0, 0}},
+-    {{-0.5f, -0.5f, -0.5f},
+-     {0.0f, 0.0f, -1.0f},
+-     {0.25f, 1.0f / 3.0f},
+-     {1.0f, 0.0f, 0.0f, 0.0f},
+-     {0, 0, 0, 0}},
+     {{0.5f, -0.5f, -0.5f},
+      {0.0f, 0.0f, -1.0f},
+      {0.0f, 1.0f / 3.0f},
+      {1.0f, 0.0f, 0.0f, 0.0f},
+      {0, 0, 0, 0}},
+-    {{-0.5f, 0.5f, -0.5f},
+-     {0.0f, 0.0f, -1.0f},
+-     {0.0f, 2.0f / 3.0f},
+-     {1.0f, 0.0f, 0.0f, 0.0f},
+-     {0, 0, 0, 0}},
+-    {{0.5f, -0.5f, -0.5f},
++    {{-0.5f, -0.5f, -0.5f},
+      {0.0f, 0.0f, -1.0f},
+      {0.25f, 1.0f / 3.0f},
+      {1.0f, 0.0f, 0.0f, 0.0f},
+@@ -72,11 +62,23 @@
+     sizeof(data_attribute_descriptions) /
+     sizeof(data_attribute_descriptions[0]);
+ 
++const struct data_model_index
++{
++        struct
++        {
++                uint32_t first, second, third;
++        } square[2];
++} *data_model_index = &(struct data_model_index){{
++    {0, 2, 1},
++    {0, 1, 3},
++}};
++const VkDeviceSize data_model_index_size = sizeof(*data_model_index);
++
+ data_model_t data_models[] = {
+     {
+         "Square",
+-        0,
+-        sizeof(model_vertex) / sizeof(uint32_t),
++        offsetof(struct data_model_index, square) / sizeof(uint32_t),
++        sizeof(data_model_index->square) / sizeof(uint32_t),
+         0,
+     },
+ };
+diff -bNur 0002lighting/data.h 0003index-buffer/data.h
+--- 0002lighting/data.h	2019-03-02 19:55:02.549357804 -0600
++++ 0003index-buffer/data.h	2019-03-02 19:55:02.553357906 -0600
+@@ -28,6 +28,9 @@
+ extern const VkVertexInputAttributeDescription data_attribute_descriptions[];
+ extern const uint32_t data_attribute_descriptions_count;
+ 
++extern const struct data_model_index *data_model_index;
++extern const VkDeviceSize data_model_index_size;
++
+ typedef struct
+ {
+         char *name;
+diff -bNur 0002lighting/vulkan.c 0003index-buffer/vulkan.c
+--- 0002lighting/vulkan.c	2019-03-02 20:06:22.813345353 -0600
++++ 0003index-buffer/vulkan.c	2019-03-02 20:06:22.817345540 -0600
+@@ -27,6 +27,8 @@
+ VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+ VkBuffer vertex_buffer = VK_NULL_HANDLE;
+ VkDeviceMemory vertex_buffer_memmory = VK_NULL_HANDLE;
++VkBuffer index_buffer = VK_NULL_HANDLE;
++VkDeviceMemory index_buffer_memmory = VK_NULL_HANDLE;
+ VkCommandPool command_pool = VK_NULL_HANDLE;
+ VkSemaphore wait_semaphore = VK_NULL_HANDLE;
+ VkFence queue_submit_fence = VK_NULL_HANDLE;
+@@ -773,6 +775,75 @@
+         vkUnmapMemory(device, vertex_buffer_memmory);
+ }
+ 
++inline static void create_index_buffer()
++{
++        VkBufferCreateInfo buffer_info_create;
++        static const VkBufferCreateInfo EmptyVkBufferCreateInfo;
++        buffer_info_create = EmptyVkBufferCreateInfo;
++        buffer_info_create.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
++        buffer_info_create.size = data_model_index_size;
++        buffer_info_create.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
++        buffer_info_create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++
++        VkResult err;
++        err = vkCreateBuffer(device, &buffer_info_create, NULL, &index_buffer);
++        assert((err == VK_SUCCESS) && "vkCreateBuffer: Failed index buffer.");
++}
++
++inline static void
++allocate_index_buffer(VkPhysicalDeviceMemoryProperties gpu_memory_properties)
++{
++        VkMemoryRequirements mememory_requirements;
++        vkGetBufferMemoryRequirements(device, index_buffer, &mememory_requirements);
++
++        VkMemoryAllocateInfo allocate_info;
++        static const VkMemoryAllocateInfo EmptyVkMemoryAllocateInfo;
++        allocate_info = EmptyVkMemoryAllocateInfo;
++        allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
++        allocate_info.allocationSize = mememory_requirements.size;
++
++        allocate_info.memoryTypeIndex = UINT32_MAX;
++        for (size_t i = 0; i < gpu_memory_properties.memoryTypeCount; ++i)
++        {
++                if ((mememory_requirements.memoryTypeBits & (1 << i)) &&
++                    ((gpu_memory_properties.memoryTypes[i].propertyFlags &
++                      (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
++                     (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)))
++                {
++                        allocate_info.memoryTypeIndex = i;
++                        break;
++                }
++        }
++        assert((allocate_info.memoryTypeIndex != UINT32_MAX) &&
++               "Failed to find suitable memory type for index.");
++
++        VkResult err;
++        err = vkAllocateMemory(device, &allocate_info, NULL, &index_buffer_memmory);
++        assert((err == VK_SUCCESS) && "vkAllocateMemory: Failed index buffer.");
++
++        err = vkBindBufferMemory(device, index_buffer, index_buffer_memmory, 0);
++        assert((err == VK_SUCCESS) && "vkBindBufferMemory: Failed index buffer.");
++}
++
++inline static void
++setup_index_buffer(VkPhysicalDeviceMemoryProperties gpu_memory_properties)
++{
++        create_index_buffer();
++        allocate_index_buffer(gpu_memory_properties);
++
++        void *data;
++        VkResult err;
++        err = vkMapMemory(device, index_buffer_memmory, 0, data_model_index_size, 0,
++                          &data);
++        assert((err == VK_SUCCESS) && "vkMapMemory: Failed index buffer.");
++
++        memcpy(data, data_model_index, data_model_index_size);
++
++        vkUnmapMemory(device, index_buffer_memmory);
++}
++
+ inline static void create_shaders(VkShaderModule *vert_modules,
+                                   VkShaderModule *frag_modules)
+ {
+@@ -1120,6 +1191,8 @@
+         vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer,
+                                &ZeroVkDeviceSize);
+ 
++        vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT32);
++
+         data_model_instance_t *ptr =
+             list_entry(data_model_instances.next, data_model_instance_t, list);
+         vkCmdBindPipeline(
+@@ -1132,8 +1205,8 @@
+             &ptr->uniform_map->descriptor_set,
+             0, NULL);
+ 
+-        vkCmdDraw(command_buffer, data_models[ptr->model].count, 1,
+-                  data_models[ptr->model].first, 0);
++        vkCmdDrawIndexed(command_buffer, data_models[ptr->model].count, 1,
++                         data_models[ptr->model].first, 0, 0);
+ 
+         vkCmdEndRenderPass(command_buffer);
+ 
+@@ -1248,6 +1321,10 @@
+         vert_modules[0] = VK_NULL_HANDLE;
+         vkDestroyPipelineLayout(device, pipeline_layout, NULL);
+         pipeline_layout = VK_NULL_HANDLE;
++        vkFreeMemory(device, index_buffer_memmory, NULL);
++        index_buffer_memmory = VK_NULL_HANDLE;
++        vkDestroyBuffer(device, index_buffer, NULL);
++        index_buffer = VK_NULL_HANDLE;
+         vkFreeMemory(device, vertex_buffer_memmory, NULL);
+         vertex_buffer_memmory = VK_NULL_HANDLE;
+         vkDestroyBuffer(device, vertex_buffer, NULL);
+@@ -1321,6 +1398,7 @@
+         setup_descriptor_set();
+ 
+         setup_vertex_buffer(gpu_memory_properties);
++        setup_index_buffer(gpu_memory_properties);
+ 
+         VkShaderModule vert_modules[] = {VK_NULL_HANDLE};
+         VkShaderModule frag_modules[] = {VK_NULL_HANDLE};

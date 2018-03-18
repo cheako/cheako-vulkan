@@ -1,0 +1,6 @@
+[submodule "lib/imguicolortextedit"]
+	path = lib/imguicolortextedit
+	url = https://github.com/cheako/ImGuiColorTextEdit.git
+[submodule "lib/whereami"]
+	path = lib/whereami
+	url = https://github.com/gpakosz/whereami

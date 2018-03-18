@@ -1,0 +1,453 @@
+diff -bNur 0006multi-model/0_vert.glsl 0007shared-ubo/0_vert.glsl
+--- 0006multi-model/0_vert.glsl	2019-03-02 19:55:02.561358109 -0600
++++ 0007shared-ubo/0_vert.glsl	2019-03-02 19:55:02.561358109 -0600
+@@ -15,12 +15,16 @@
+ {
+ 	mat4 model;
+ 	mat4 bones[MAX_BONES];
++} ubo;
++
++layout (binding = 2) uniform SUBO 
++{
+ 	mat4 vp;
+ 	vec3 lightPos;
+ 	float pada;
+ 	vec3 viewPos;
+ 	float padb;
+-} ubo;
++} subo;
+ 
+ layout (location = 0) out vec2 outUV;
+ layout (location = 1) out vec3 outNormal;
+@@ -41,10 +45,10 @@
+ 	outUV = inUV;
+ 
+ 	mat4 skinPos = ubo.model * boneTransform;
+-	gl_Position = ubo.vp * skinPos * vec4(inPos, 1.0);
++	gl_Position = subo.vp * skinPos * vec4(inPos, 1.0);
+ 
+ 	vec4 pos = skinPos * vec4(inPos, 1.0);
+ 	outNormal = inverse(transpose(mat3(skinPos))) * inNormal;
+-	outLightVec = ubo.lightPos - pos.xyz;
+-	outViewVec = ubo.viewPos - pos.xyz;
++	outLightVec = subo.lightPos - pos.xyz;
++	outViewVec = subo.viewPos - pos.xyz;
+ }
+diff -bNur 0006multi-model/data_bulk.h 0007shared-ubo/data_bulk.h
+--- 0006multi-model/data_bulk.h	2019-03-02 19:55:02.561358109 -0600
++++ 0007shared-ubo/data_bulk.h	2019-03-02 19:55:02.561358109 -0600
+@@ -4,13 +4,7 @@
+ // Must not be higher than same const in skinning shader
+ #define MAX_BONES 64
+ 
+-typedef struct
+-{
++typedef struct {
+         mat4 model;
+         mat4 bones[MAX_BONES];
+-        mat4 vp;
+-        vec3 lightPos;
+-        float pada;
+-        vec3 viewPos;
+-        float padb;
+ } material_0_ubo_t;
+diff -bNur 0006multi-model/data.h 0007shared-ubo/data.h
+--- 0006multi-model/data.h	2019-03-02 19:55:02.561358109 -0600
++++ 0007shared-ubo/data.h	2019-03-02 19:55:02.561358109 -0600
+@@ -31,6 +31,8 @@
+ extern const struct data_model_index *data_model_index;
+ extern const VkDeviceSize data_model_index_size;
+ 
++extern struct shared_ubo *data_model_shared_ubo;
++
+ typedef struct {
+   char *name;
+   uint32_t first;
+@@ -39,19 +41,6 @@
+ } data_model_t;
+ extern data_model_t data_models[];
+ 
+-#define UNIFORM_ALIGN (sizeof(float) * 4)
+-#define FROM_UNIFORM_ALLOC(x) (x * UNIFORM_ALIGN)
+-#define TO_UNIFORM_ALLOC(x) ((x + UNIFORM_ALIGN - 1) / UNIFORM_ALIGN)
+-#define UNIFORM_SIZE (4096 * 4096)
+-typedef struct {
+-  VkDescriptorSet descriptor_set;
+-  size_t offset;
+-  size_t range;
+-  size_t width;
+-  struct list_head list;
+-} uniform_map_t;
+-extern void (*data_setup_model_instance)(uniform_map_t *uniform_map);
+-
+ typedef struct data_model_instance {
+   char *name;
+   size_t model;
+@@ -59,9 +48,10 @@
+   void *closure;
+   struct list_head list;
+   void *ubo;
+-  uniform_map_t *uniform_map;
++  struct list_head *uniform_map;
+ } data_model_instance_t;
+ extern struct list_head data_model_instances;
++extern void (*data_setup_model_instance)(data_model_instance_t *inst);
+ 
+ typedef struct {
+   struct {
+@@ -84,4 +74,17 @@
+ } data_material_t;
+ extern const data_material_t data_materials[];
+ 
++#define UNIFORM_ALIGN (sizeof(float) * 4)
++#define FROM_UNIFORM_ALLOC(x) (x * UNIFORM_ALIGN)
++#define TO_UNIFORM_ALLOC(x) ((x + UNIFORM_ALIGN - 1) / UNIFORM_ALIGN)
++#define UNIFORM_SIZE (4096 * 4096)
++#define SHARED_UNIFORM_SIZE (4096 * 32)
++typedef struct {
++  VkDescriptorSet descriptor_set;
++  size_t offset;
++  size_t range;
++  size_t width;
++  struct list_head list;
++} uniform_map_t;
++
+ #endif
+diff -bNur 0006multi-model/libdata.c 0007shared-ubo/libdata.c
+--- 0006multi-model/libdata.c	2019-03-02 20:06:22.821345727 -0600
++++ 0007shared-ubo/libdata.c	2019-03-02 20:06:22.821345727 -0600
+@@ -13,6 +13,15 @@
+         }
+ }
+ 
++typedef struct shared_ubo
++{
++        mat4 vp;
++        vec3 lightPos;
++        float pada;
++        vec3 viewPos;
++        float padb;
++} shared_ubo_t;
++
+ float center_dir = 0;
+ 
+ GLFWwindow *data_window = NULL;
+@@ -42,6 +51,9 @@
+         glm_mat4_copy(rot0, *model);
+ }
+ 
++#define SUBO data_model_shared_ubo
++struct shared_ubo *SUBO = NULL;
++
+ typedef struct
+ {
+         data_model_instance_t obj, other_obj;
+@@ -81,7 +93,7 @@
+ };
+ 
+ inline static void split_map(size_t size, uniform_map_t *map,
+-                             uniform_map_t **ptr)
++                             struct list_head **ptr)
+ {
+         uniform_map_t *this_map;
+         this_map = malloc(sizeof(uniform_map_t));
+@@ -94,7 +106,7 @@
+                 this_map->width = map->width - map->range;
+                 map->width = map->range;
+                 list_add(&this_map->list, map->list.next);
+-                *ptr = this_map;
++                *ptr = &this_map->list;
+         }
+         else
+         {
+@@ -102,12 +114,12 @@
+                 map->offset += this_map->width = this_map->range = size;
+                 map->width -= size;
+                 list_add(&this_map->list, &map->list);
+-                *ptr = this_map;
++                *ptr = &this_map->list;
+         }
+ }
+ 
++void (*data_setup_model_instance)(data_model_instance_t *inst);
+ uintptr_t data_uniform_ptr = 0;
+-void (*data_setup_model_instance)(uniform_map_t *uniform_map);
+ inline static void setup_model_instance(data_model_instance_t *inst)
+ {
+         size_t size = TO_UNIFORM_ALLOC(
+@@ -131,14 +143,14 @@
+                         if ((!map->range) && (free >= size) && (size * 2 > free))
+                         {
+                                 map->range = size;
+-                                inst->uniform_map = map;
+-                                data_setup_model_instance(inst->uniform_map);
++                                inst->uniform_map = &map->list;
++                                data_setup_model_instance(inst);
+                                 break;
+                         }
+                         else if (size < free)
+                         {
+                                 split_map(size, map, &inst->uniform_map);
+-                                data_setup_model_instance(inst->uniform_map);
++                                data_setup_model_instance(inst);
+                                 break;
+                         }
+                         else if (size < free + contigious)
+@@ -148,22 +160,21 @@
+                 }
+         }
+         assert(inst->uniform_map && "Out of uniform space.");
+-        inst->ubo = (void *)(FROM_UNIFORM_ALLOC(inst->uniform_map->offset) +
++        inst->ubo = (void *)(FROM_UNIFORM_ALLOC(list_entry(inst->uniform_map,
++                                                           uniform_map_t, list)
++                                                    ->offset) +
+                              data_uniform_ptr);
+ }
+ 
+ mat4 projection;
+ mat4 view;
+-inline static void update_vp(material_0_ubo_t *ubo_0, material_0_ubo_t *ubo_1)
++inline static void update_vp()
+ {
+-        glm_vec_copy(ubo_0->viewPos, ubo_1->viewPos);
+-
+-        glm_lookat(ubo_0->viewPos,
+-                   (vec3){ubo_0->viewPos[0] + sinf(center_dir), ubo_0->viewPos[1],
+-                          ubo_0->viewPos[2] + cosf(center_dir)},
++        glm_lookat(SUBO->viewPos,
++                   (vec3){SUBO->viewPos[0] + sinf(center_dir), SUBO->viewPos[1],
++                          SUBO->viewPos[2] + cosf(center_dir)},
+                    GLM_YUP, view);
+-        glm_mat4_mul(projection, view, ubo_0->vp);
+-        glm_mat4_copy(ubo_0->vp, ubo_1->vp);
++        glm_mat4_mul(projection, view, SUBO->vp);
+ }
+ 
+ /*
+@@ -187,14 +198,16 @@
+         {
+                 static const material_0_ubo_t empty_data_material_ubo_s;
+                 *ubo_0 = empty_data_material_ubo_s;
++                static const shared_ubo_t empty_shared_ubo_s;
++                *SUBO = empty_shared_ubo_s;
+         }
+         glm_mat4_copy(GLM_MAT4_IDENTITY, ubo_0->bones[0]);
+-        ubo_0->lightPos[0] = 0.0f;
+-        ubo_0->lightPos[1] = 250.0f;
+-        ubo_0->lightPos[2] = -250.0f;
+-        ubo_0->viewPos[0] = 0.0f;
+-        ubo_0->viewPos[1] = 0.0f;
+-        ubo_0->viewPos[2] = -2.0f;
++        SUBO->lightPos[0] = 0.0f;
++        SUBO->lightPos[1] = 250.0f;
++        SUBO->lightPos[2] = -250.0f;
++        SUBO->viewPos[0] = 0.0f;
++        SUBO->viewPos[1] = 0.0f;
++        SUBO->viewPos[2] = -3.0f;
+ 
+         glm_mat4_copy(GLM_MAT4_IDENTITY, ubo_0->model);
+ 
+@@ -212,7 +225,7 @@
+                      oglproj, projection);
+ #endif
+ 
+-        update_vp(ubo_0, ubo_1);
++        update_vp();
+ 
+         *ubo_1 = *ubo_0;
+         glm_rotate_y(GLM_MAT4_IDENTITY, CGLM_PI / 2, ubo_1->model);
+@@ -220,8 +233,7 @@
+         previous_frame = glfwGetTime();
+ }
+ 
+-inline static void handle_input(double this_frame, material_0_ubo_t *ubo_0,
+-                                material_0_ubo_t *ubo_1)
++inline static void handle_input(double this_frame)
+ {
+         float diagnal2 = 1;
+         bool need_lookat = false;
+@@ -234,8 +246,8 @@
+                                                                        : previous_frame - this_frame);
+                 if (GET_KEY(GLFW_KEY_R) ^ GET_KEY(GLFW_KEY_V))
+                         diagnal2 = 0.70710678119f;
+-                ubo_0->viewPos[0] += sinf(center_dir) * dist * diagnal2;
+-                ubo_0->viewPos[2] += cosf(center_dir) * dist * diagnal2;
++                SUBO->viewPos[0] += sinf(center_dir) * dist * diagnal2;
++                SUBO->viewPos[2] += cosf(center_dir) * dist * diagnal2;
+                 need_lookat = true;
+         }
+ 
+@@ -250,12 +262,12 @@
+         {
+                 double dist = 1.5 * (GET_KEY(GLFW_KEY_R) ? this_frame - previous_frame
+                                                          : previous_frame - this_frame);
+-                ubo_0->viewPos[1] += dist * diagnal2;
++                SUBO->viewPos[1] += dist * diagnal2;
+                 need_lookat = true;
+         }
+ 
+         if (need_lookat)
+-                update_vp(ubo_0, ubo_1);
++                update_vp();
+ }
+ 
+ void _glm_atan3(vec3 zvec, float zopposite, float zadjacent, vec3 rot)
+@@ -342,16 +354,9 @@
+ 
+ void data_update()
+ {
+-        material_0_ubo_t *ubo_0 = list_entry(data_model_instances.next,
+-                                             data_model_instance_t, list)
+-                                      ->ubo,
+-                         *ubo_1 = list_entry(data_model_instances.next->next,
+-                                             data_model_instance_t, list)
+-                                      ->ubo;
+-
+         double this_frame = glfwGetTime();
+ 
+-        handle_input(this_frame, ubo_0, ubo_1);
++        handle_input(this_frame);
+ 
+         data_model_instance_t *ptr;
+         list_for_each_entry(ptr, &data_model_instances, list)
+@@ -359,6 +364,7 @@
+ 
+         if (0)
+         {
++                material_0_ubo_t *ubo_0 = model_instance.obj.ubo;
+                 mat4 model;
+                 glm_mat4_copy(ubo_0->model, model);
+                 glm_rotate_y(model, this_frame - previous_frame, ubo_0->model);
+diff -bNur 0006multi-model/vulkan.c 0007shared-ubo/vulkan.c
+--- 0006multi-model/vulkan.c	2019-03-03 15:07:42.139278966 -0600
++++ 0007shared-ubo/vulkan.c	2019-03-03 15:07:51.304459958 -0600
+@@ -530,7 +530,7 @@
+         static const VkBufferCreateInfo EmptyVkBufferCreateInfo;
+         buffer_info_create = EmptyVkBufferCreateInfo;
+         buffer_info_create.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+-        buffer_info_create.size = UNIFORM_SIZE;
++        buffer_info_create.size = UNIFORM_SIZE + SHARED_UNIFORM_SIZE;
+         buffer_info_create.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+         buffer_info_create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+ 
+@@ -583,14 +583,16 @@
+         allocate_uniform_buffer(gpu_memory_properties);
+ 
+         VkResult err;
+-        err = vkMapMemory(device, uniform_buffer_memmory, 0, UNIFORM_SIZE, 0,
++        err = vkMapMemory(device, uniform_buffer_memmory, 0,
++                          UNIFORM_SIZE + SHARED_UNIFORM_SIZE, 0,
+                           (void **)&data_uniform_ptr);
+         assert((err == VK_SUCCESS) && "vkMapMemory: Failed uniform buffer.");
++        data_model_shared_ubo = (struct shared_ubo *)(UNIFORM_SIZE + data_uniform_ptr);
+ }
+ 
+ inline static void create_descriptor_set_layout()
+ {
+-        VkDescriptorSetLayoutBinding set_layout_bindings[2];
++        VkDescriptorSetLayoutBinding set_layout_bindings[3];
+         static const VkDescriptorSetLayoutBinding EmptyVkDescriptorSetLayoutBinding;
+         set_layout_bindings[0] = EmptyVkDescriptorSetLayoutBinding;
+         set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+@@ -598,6 +600,9 @@
+         set_layout_bindings[0].binding = 0;
+         set_layout_bindings[0].descriptorCount = 1;
+ 
++        set_layout_bindings[2] = set_layout_bindings[0];
++        set_layout_bindings[2].binding = 2;
++
+         set_layout_bindings[1] = EmptyVkDescriptorSetLayoutBinding;
+         set_layout_bindings[1].descriptorType =
+             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+@@ -666,23 +671,31 @@
+ 
+ inline static void update_descriptor_set(uniform_map_t *map)
+ {
+-        VkDescriptorBufferInfo uniform_descriptors[1];
++        VkDescriptorBufferInfo uniform_descriptors[2];
+         static const VkDescriptorBufferInfo EmptyVkDescriptorBufferInfo;
+         uniform_descriptors[0] = EmptyVkDescriptorBufferInfo;
+         uniform_descriptors[0].buffer = uniform_buffer;
+         uniform_descriptors[0].offset = FROM_UNIFORM_ALLOC(map->offset);
+         uniform_descriptors[0].range = FROM_UNIFORM_ALLOC(map->range);
+ 
+-        VkWriteDescriptorSet write_descriptor_sets[2];
++        uniform_descriptors[1] = uniform_descriptors[0];
++        uniform_descriptors[1].offset = UNIFORM_SIZE;
++        uniform_descriptors[1].range = SHARED_UNIFORM_SIZE;
++
++        VkWriteDescriptorSet write_descriptor_sets[3];
+         static const VkWriteDescriptorSet EmptyVkWriteDescriptorSet;
+         write_descriptor_sets[0] = EmptyVkWriteDescriptorSet;
+         write_descriptor_sets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+         write_descriptor_sets[0].dstSet = map->descriptor_set;
+         write_descriptor_sets[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+         write_descriptor_sets[0].dstBinding = 0;
+-        write_descriptor_sets[0].pBufferInfo = uniform_descriptors;
++        write_descriptor_sets[0].pBufferInfo = &uniform_descriptors[0];
+         write_descriptor_sets[0].descriptorCount = 1;
+ 
++        write_descriptor_sets[2] = write_descriptor_sets[0];
++        write_descriptor_sets[2].dstBinding = 2;
++        write_descriptor_sets[2].pBufferInfo = &uniform_descriptors[1];
++
+         VkDescriptorImageInfo image_info;
+         static const VkDescriptorImageInfo EmptyVkDescriptorImageInfo;
+         image_info = EmptyVkDescriptorImageInfo;
+@@ -704,11 +717,13 @@
+             write_descriptor_sets, 0, NULL);
+ }
+ 
+-void setup_model_instance(uniform_map_t *uniform_map)
++void setup_model_instance(data_model_instance_t *inst)
+ {
+-        if (uniform_map->descriptor_set == VK_NULL_HANDLE)
+-                allocate_descriptor_set(&uniform_map->descriptor_set);
+-        update_descriptor_set(uniform_map);
++        uniform_map_t *this_map;
++        this_map = list_entry(inst->uniform_map, uniform_map_t, list);
++        if (this_map->descriptor_set == VK_NULL_HANDLE)
++                allocate_descriptor_set(&this_map->descriptor_set);
++        update_descriptor_set(this_map);
+ }
+ 
+ inline static void create_pipeline_layout()
+@@ -1399,20 +1414,23 @@
+ 
+         vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT32);
+ 
+-        data_model_instance_t *ptr =
++        data_model_instance_t *inst =
+             list_entry(data_model_instances.next, data_model_instance_t, list);
+         vkCmdBindPipeline(
+             command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+-            graphics_pipelines[data_materials[data_models[ptr->model].material]
++            graphics_pipelines[data_materials[data_models[inst->model].material]
+                                    .shader]);
+ 
++        list_for_each_entry(inst, &data_model_instances, list)
++        {
+         vkCmdBindDescriptorSets(
+             command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
+-            &ptr->uniform_map->descriptor_set,
++                    &list_entry(inst->uniform_map, uniform_map_t, list)->descriptor_set,
+             0, NULL);
+ 
+-        vkCmdDrawIndexed(command_buffer, data_models[ptr->model].count, 1,
+-                         data_models[ptr->model].first, 0, 0);
++                vkCmdDrawIndexed(command_buffer, data_models[inst->model].count, 1,
++                                 data_models[inst->model].first, 0, 0);
++        }
+ 
+         vkCmdEndRenderPass(command_buffer);
+ 
+@@ -1556,7 +1574,8 @@
+         list_for_each_entry(ptr, &data_model_instances, list)
+         {
+                 ptr->ubo = NULL;
+-                ptr->uniform_map->descriptor_set = VK_NULL_HANDLE;
++                list_entry(ptr->uniform_map, uniform_map_t, list)->descriptor_set =
++                    VK_NULL_HANDLE;
+         }
+         vkFreeMemory(device, uniform_buffer_memmory, NULL);
+         uniform_buffer_memmory = VK_NULL_HANDLE;

@@ -1,0 +1,214 @@
+diff -bNur 0010tasks-during-render/data_bulk.c 0011disappearing-instances/data_bulk.c
+--- 0010tasks-during-render/data_bulk.c	2019-03-02 20:06:22.829346100 -0600
++++ 0011disappearing-instances/data_bulk.c	2019-03-02 20:06:22.833346287 -0600
+@@ -278,6 +278,10 @@
+ 
+ mat4 *get_model_1(void *p) { return &((material_1_ubo_t *)p)->model; }
+ 
++mat4 *get_bones_0(void *p) { return &((material_0_ubo_t *)p)->bones[0]; }
++
++mat4 *get_bones_1(void *p) { return &((material_1_ubo_t *)p)->bones[0]; }
++
+ #define DMTCLEAR                                                                      \
+         {                                                                             \
+                 {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, \
+@@ -325,6 +329,7 @@
+         0,
+         sizeof(material_0_ubo_t),
+         get_model_0,
++        get_bones_0,
+         VK_FORMAT_R8G8B8A8_UNORM,
+         8 * 4,
+         8 * 3,
+@@ -778,6 +783,7 @@
+         1,
+         sizeof(material_1_ubo_t),
+         get_model_1,
++        get_bones_1,
+         VK_FORMAT_R8G8B8A8_UNORM,
+         8 * 4,
+         8 * 3,
+diff -bNur 0010tasks-during-render/data.h 0011disappearing-instances/data.h
+--- 0010tasks-during-render/data.h	2019-03-02 19:55:02.569358313 -0600
++++ 0011disappearing-instances/data.h	2019-03-02 19:55:02.573358415 -0600
+@@ -49,6 +49,7 @@
+         char *name;
+         size_t model;
+         void (*update)(struct data_model_instance *, double);
++        void (*collision)(struct data_model_instance *, struct data_model_instance *);
+         void *closure;
+         struct list_head list;
+         void *ubo;
+@@ -74,6 +75,7 @@
+         size_t shader;
+         VkDeviceSize ubo_vertex_shader_size;
+         mat4 *(*get_model)(void *);
++        mat4 *(*get_bones)(void *);
+         VkFormat texture_format;
+         uint32_t texture_width;
+         uint32_t texture_height;
+diff -bNur 0010tasks-during-render/libdata.c 0011disappearing-instances/libdata.c
+--- 0010tasks-during-render/libdata.c	2019-03-02 20:06:22.829346100 -0600
++++ 0011disappearing-instances/libdata.c	2019-03-02 20:06:22.833346287 -0600
+@@ -9,6 +9,16 @@
+ 
+ inline static void player_shoot();
+ 
++struct
++{
++        unsigned char forward;
++        unsigned char backward;
++        unsigned char turn_l;
++        unsigned char turn_r;
++        unsigned char climb_up;
++        unsigned char climb_down;
++} keys_count = {false, false, false, false, false, false};
++
+ void key_callback(GLFWwindow *window, int key, int scancode, int action,
+                   int mods)
+ {
+@@ -71,6 +81,8 @@
+         float mass;
+         float speed;
+         bool solid;
++        size_t hp;
++        float scale_left;
+ } instance_closure_t;
+ 
+ void shoot_forward(data_model_instance_t *ptr, double t)
+@@ -83,6 +95,37 @@
+         glm_mat4_copy(rot0, *model);
+ }
+ 
++void shrink_forward(data_model_instance_t *ptr, double t)
++{
++        mat4 *bones =
++            data_materials[data_models[ptr->model].material].get_bones(ptr->ubo);
++        float *scale_left = &((instance_closure_t *)ptr->closure)->scale_left;
++        shoot_forward(ptr, t);
++        if (*scale_left == 0.0f)
++                *scale_left = 1.0f;
++        *scale_left -= t / 3.0f;
++        if (*scale_left <= 0.0f)
++        {
++                ptr->update = NULL;
++                *scale_left = 0.0f;
++                glm_scale1(bones[0], 0);
++        }
++        else
++                glm_scale1(bones[0], (*scale_left - t / 3.0f) / *scale_left);
++}
++
++void reduce_hp_shrink(data_model_instance_t *a, data_model_instance_t *b)
++{
++        assert(((instance_closure_t *)a->closure)->hp &&
++               "Shouldn't have called collision().");
++        if (--((instance_closure_t *)a->closure)->hp == 0)
++        {
++                ((instance_closure_t *)a->closure)->solid = false;
++                a->collision = NULL;
++                a->update = &shrink_forward;
++        }
++}
++
+ inline static void setup_model_instance(data_model_instance_t *inst);
+ #define SUBO data_model_shared_ubo
+ struct shared_ubo *SUBO = NULL;
+@@ -91,8 +134,10 @@
+ {
+         static const instance_closure_t bullet_closure = {
+             0.02f,
+-            3.0f,
++            1.0f,
+             true,
++            3,
++            0.0f,
+         };
+ 
+         data_model_instance_t *this_instance = NULL,
+@@ -100,7 +145,8 @@
+                                   "Bullet Object",
+                                   1,
+                                   shoot_forward,
+-                                  &bullet_closure,
++                                  reduce_hp_shrink,
++                                  NULL,
+                                   {NULL, NULL},
+                                   NULL,
+                                   VK_NULL_HANDLE,
+@@ -109,6 +155,9 @@
+         this_instance = malloc(sizeof(bullet_instance));
+         assert(this_instance && "Out of memory.");
+         *this_instance = bullet_instance;
++        this_instance->closure = malloc(sizeof(bullet_closure));
++        assert(this_instance->closure && "Out of memory.");
++        *((instance_closure_t *)this_instance->closure) = bullet_closure;
+         setup_model_instance(this_instance);
+ 
+         {
+@@ -144,10 +193,13 @@
+         "Object",
+         0,
+         NULL,
++        reduce_hp_shrink,
+         &(instance_closure_t){
+             1.0f,
+             0.0f,
+             true,
++            5,
++            0.0f,
+         },
+         {&(data_model_instances), &(data_model_instances)},
+         NULL,
+@@ -422,7 +474,7 @@
+         {
+                 double dist = 1.5 * (GET_KEY2(GLFW_KEY_W, GLFW_KEY_UP) ? this_frame - previous_frame
+                                                              : previous_frame - this_frame);
+-                if (GET_KEY(GLFW_KEY_R) ^ GET_KEY(GLFW_KEY_V))
++                if ((!keys_count.climb_up) ^ !keys_count.climb_down)
+                         diagnal2 = 0.70710678119f;
+                 SUBO->viewPos[0] += sinf(center_dir) * dist * diagnal2;
+                 SUBO->viewPos[2] += cosf(center_dir) * dist * diagnal2;
+@@ -519,8 +571,13 @@
+                         }
+                         if (new_model)
+                         {
+-                                mat4 rot0, rot1, trans0;
+-                                glm_rotate_x(GLM_MAT4_IDENTITY, rot[0], rot0);
++                                mat4 scale0, trans0, rot0, rot1;
++#define SCALE ((instance_closure_t *)ptr->closure)->scale_left
++#define VALUE SCALE == 0.0f ? 1.0f : SCALE
++                                glm_scale_make(scale0, (vec3){VALUE, VALUE, VALUE});
++#undef VALUE
++#undef SCALE
++                                glm_rotate_x(scale0, rot[0], rot0);
+                                 glm_rotate_y(rot0, rot[1], rot1);
+                                 glm_rotate_z(rot1, rot[2], rot0);
+                                 glm_translate_make(trans0, pos);
+@@ -540,6 +597,10 @@
+                 mat4 *model[2];
+                 ids[0] = collisions[i].x;
+                 ids[1] = collisions[i].y;
++                if (ids[0]->collision)
++                        ids[0]->collision(ids[0], ids[1]);
++                if (ids[1]->collision)
++                        ids[1]->collision(ids[1], ids[0]);
+                 for (size_t a = 0; a < 2; a++)
+                 {
+                         /* TODO: Skip no-longer available objects */
+@@ -592,8 +653,13 @@
+                                 _glm_atan3(zrot[a], zop[a], zadj[a], rot);
+ 
+                                 {
+-                                        mat4 trans0, rot0, rot1, rot2;
+-                                        glm_rotate_x(GLM_MAT4_IDENTITY, rot[0], rot0);
++                                        mat4 scale0, trans0, rot0, rot1, rot2;
++#define SCALE ((instance_closure_t *)ids[a]->closure)->scale_left
++#define VALUE SCALE == 0.0f ? 1.0f : SCALE
++                                        glm_scale_make(scale0, (vec3){VALUE, VALUE, VALUE});
++#undef VALUE
++#undef SCALE
++                                        glm_rotate_x(scale0, rot[0], rot0);
+                                         glm_rotate_y(rot0, rot[1], rot1);
+                                         glm_rotate_z(rot1, rot[2], rot2);
+                                         glm_translate_make(trans0, pos[a]);

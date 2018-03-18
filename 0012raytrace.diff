@@ -1,0 +1,9 @@
+diff -bNur 0011disappearing-instances/libdata.c 0012raytrace/libdata.c
+--- 0011disappearing-instances/libdata.c	2019-03-02 20:06:22.833346287 -0600
++++ 0012raytrace/libdata.c	2019-03-02 20:06:22.837346474 -0600
+@@ -719,4 +719,5 @@
+         assert((!pthread_cond_broadcast(&data_data_cond)) && "Exit");
+         assert((!pthread_mutex_unlock(&collisions_mutex)) && "Exit");
+         assert(!pthread_join(while_rendering_0, NULL));
++        /* DELETE */
+ }

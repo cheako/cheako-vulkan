@@ -1,0 +1,991 @@
+diff -bNur 0004cube/0_frag.glsl 0005texture/0_frag.glsl
+--- 0004cube/0_frag.glsl	2019-03-02 19:55:02.553357906 -0600
++++ 0005texture/0_frag.glsl	2019-03-02 19:55:02.557358008 -0600
+@@ -3,6 +3,8 @@
+ #extension GL_ARB_separate_shader_objects : enable
+ #extension GL_ARB_shading_language_420pack : enable
+ 
++layout (binding = 1) uniform sampler2D samplerColorMap;
++
+ layout (location = 0) in vec2 inUV;
+ layout (location = 1) in vec3 inNormal;
+ layout (location = 2) in vec3 inViewVec;
+@@ -12,7 +14,7 @@
+ 
+ void main()
+ {
+-    vec4 color = vec4(0.0, 0.0, 0.059, 1.0);
++    vec4 color = texture(samplerColorMap, inUV);
+ 
+     vec3 normal = normalize(inNormal);
+     vec3 surfaceToLight = normalize(inLightVec);
+diff -bNur 0004cube/data_bulk.c 0005texture/data_bulk.c
+--- 0004cube/data_bulk.c	2019-03-02 20:06:22.817345540 -0600
++++ 0005texture/data_bulk.c	2019-03-02 20:06:22.817345540 -0600
+@@ -1,4 +1,5 @@
+ #include "data_bulk.h"
++#include <stdint.h>
+ 
+ typedef struct
+ {
+@@ -212,8 +213,7 @@
+     {.location = 4,
+      .binding = 0,
+      .format = VK_FORMAT_R32G32B32A32_SINT,
+-     .offset = offsetof(vertex_t, boneIDs)},
+-};
++     .offset = offsetof(vertex_t, boneIDs)}};
+ const uint32_t data_attribute_descriptions_count =
+     sizeof(data_attribute_descriptions) /
+     sizeof(data_attribute_descriptions[0]);
+@@ -249,10 +249,498 @@
+     },
+ };
+ 
++#define DMTCLEAR                                                                      \
++        {                                                                             \
++                {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, \
++                    {0, 0, 0, 0}, {0, 0, 0, 0},                                       \
++                {                                                                     \
++                        0, 0, 0, 0                                                    \
++                }                                                                     \
++        }
++#define DMTCONE 0xff
++#define DMTCTWO 0xf0
++#define DMTCTHR 0xe0
++#define DMTCFOR 0xd0
++#define DMTCFIV 0xc0
++#define DMTCSIX 0xb0
++#define DMTCSEV 0xa0
++#define DMTCEIG 0x90
++#define DMTCNIN 0x80
++#define DMTCTEN 0x70
++#define DMTCELE 0x60
++#define DMTCTWE 0x50
++#define DMTCTHT 0x40
++#define DMTCFOT 0x30
++#define DMTCFIT 0x20
++#define DMTCSIT 0x10
++typedef struct
++{
++        struct
++        {
++                struct
++                {
++                        struct
++                        {
++                                struct
++                                {
++                                        uint8_t red, green, blue, alpha;
++                                } one, two, three, four, five, six, seven, eight;
++                        } one, two, three, four;
++                } one, two, three, four, five, six, seven, eight;
++        } one, two, three;
++} texture_0_t;
++
+ const data_material_t data_materials[] = {
+     {
+         "Example",
+         0,
+         sizeof(material_0_ubo_t),
++        VK_FORMAT_R8G8B8A8_UNORM,
++        8 * 4,
++        8 * 3,
++        (void *)&(texture_0_t){{{DMTCLEAR,
++                                 {
++                                     {DMTCONE, 0, DMTCONE, 0xff},
++                                     {DMTCTWO, 0, DMTCONE, 0xff},
++                                     {DMTCTHR, 0, DMTCONE, 0xff},
++                                     {DMTCFOR, 0, DMTCONE, 0xff},
++                                     {0, DMTCFOR, DMTCONE, 0xff},
++                                     {0, DMTCTHR, DMTCONE, 0xff},
++                                     {0, DMTCTWO, DMTCONE, 0xff},
++                                     {0, DMTCONE, DMTCONE, 0xff},
++                                 },
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCTWO, 0, DMTCONE, 0xff},
++                                  {DMTCTHR, 0, DMTCONE, 0xff},
++                                  {DMTCFOR, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCFOR, DMTCONE, 0xff},
++                                  {0, DMTCTHR, DMTCONE, 0xff},
++                                  {0, DMTCTWO, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCTHR, 0, DMTCONE, 0xff},
++                                  {DMTCFOR, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCFOR, DMTCONE, 0xff},
++                                  {0, DMTCTHR, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCFOR, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCFOR, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCEIG, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCEIG, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCSEV, 0, DMTCONE, 0xff},
++                                  {DMTCEIG, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCEIG, DMTCONE, 0xff},
++                                  {0, DMTCSEV, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCSIX, 0, DMTCONE, 0xff},
++                                  {DMTCSEV, 0, DMTCONE, 0xff},
++                                  {DMTCEIG, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCEIG, DMTCONE, 0xff},
++                                  {0, DMTCSEV, DMTCONE, 0xff},
++                                  {0, DMTCSIX, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCFIV, 0, DMTCONE, 0xff},
++                                  {DMTCSIX, 0, DMTCONE, 0xff},
++                                  {DMTCSEV, 0, DMTCONE, 0xff},
++                                  {DMTCEIG, 0, DMTCONE, 0xff},
++                                  {0, DMTCEIG, DMTCONE, 0xff},
++                                  {0, DMTCSEV, DMTCONE, 0xff},
++                                  {0, DMTCSIX, DMTCONE, 0xff},
++                                  {0, DMTCFIV, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR}},
++                               {{{{DMTCONE, DMTCONE, 0, 0xff},
++                                  {DMTCONE, DMTCTWO, 0, 0xff},
++                                  {DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff},
++                                  {DMTCONE, 0, DMTCTWO, 0xff},
++                                  {DMTCONE, 0, DMTCONE, 0xff}},
++                                 {{DMTCONE, DMTCONE, 0, 0xff},
++#if 1
++                                  {0xff, 0xff, 0xff, 0xff},
++#else
++                                  {DMTCTWO, DMTCONE, 0, 0xff},
++#endif
++                                  {DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff},
++                                  {0, DMTCONE, DMTCTWO, 0xff},
++                                  {0, DMTCONE, DMTCONE, 0xff}},
++                                 {{DMTCONE, DMTCONE, 0, 0xff},
++                                  {DMTCONE, DMTCTWO, 0, 0xff},
++                                  {DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff},
++                                  {DMTCONE, 0, DMTCTWO, 0xff},
++                                  {DMTCONE, 0, DMTCONE, 0xff}},
++                                 {{DMTCONE, DMTCONE, 0, 0xff},
++                                  {DMTCTWO, DMTCONE, 0, 0xff},
++                                  {DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff},
++                                  {0, DMTCONE, DMTCTWO, 0xff},
++                                  {0, DMTCONE, DMTCONE, 0xff}}},
++                                {{{DMTCONE, DMTCTWO, 0, 0xff},
++                                  {DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff},
++                                  {DMTCONE, 0, DMTCTWO, 0xff}},
++#if 1
++                                 {{0xff, 0xff, 0xff, 0xff},
++                                  {0xff, 0xff, 0xff, 0xff},
++#else
++                                 {{DMTCTWO, DMTCONE, 0, 0xff},
++                                  {DMTCTHR, DMTCONE, 0, 0xff},
++#endif
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff},
++                                  {0, DMTCONE, DMTCTWO, 0xff}},
++                                 {{DMTCONE, DMTCTWO, 0, 0xff},
++                                  {DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff},
++                                  {DMTCONE, 0, DMTCTWO, 0xff}},
++                                 {{DMTCTWO, DMTCONE, 0, 0xff},
++                                  {DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff},
++                                  {0, DMTCONE, DMTCTWO, 0xff}}},
++                                {{{DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff}},
++                                 {{DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff}},
++                                 {{DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff}},
++                                 {{DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff}}},
++                                {{{DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff}},
++                                 {{DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff}},
++                                 {{DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff}},
++                                 {{DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff}}},
++                                {{{DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff}},
++                                 {{DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff}},
++                                 {{DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff}},
++                                 {{DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff}}},
++                                {{{DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff}},
++                                 {{DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff}},
++                                 {{DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff}},
++                                 {{DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff}}},
++                                {{{DMTCONE, DMTCTWO, 0, 0xff},
++                                  {DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff},
++                                  {DMTCONE, 0, DMTCTWO, 0xff}},
++                                 {{DMTCTWO, DMTCONE, 0, 0xff},
++                                  {DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff},
++                                  {0, DMTCONE, DMTCTWO, 0xff}},
++                                 {{DMTCONE, DMTCTWO, 0, 0xff},
++                                  {DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff},
++                                  {DMTCONE, 0, DMTCTWO, 0xff}},
++                                 {{DMTCTWO, DMTCONE, 0, 0xff},
++                                  {DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff},
++                                  {0, DMTCONE, DMTCTWO, 0xff}}},
++                                {{{DMTCONE, DMTCONE, 0, 0xff},
++                                  {DMTCONE, DMTCTWO, 0, 0xff},
++                                  {DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff},
++                                  {DMTCONE, 0, DMTCTWO, 0xff},
++                                  {DMTCONE, 0, DMTCONE, 0xff}},
++                                 {{DMTCONE, DMTCONE, 0, 0xff},
++                                  {DMTCTWO, DMTCONE, 0, 0xff},
++                                  {DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff},
++                                  {0, DMTCONE, DMTCTWO, 0xff},
++                                  {0, DMTCONE, DMTCONE, 0xff}},
++                                 {{DMTCONE, DMTCONE, 0, 0xff},
++                                  {DMTCONE, DMTCTWO, 0, 0xff},
++                                  {DMTCONE, DMTCTHR, 0, 0xff},
++                                  {DMTCONE, DMTCFOR, 0, 0xff},
++                                  {DMTCONE, 0, DMTCFOR, 0xff},
++                                  {DMTCONE, 0, DMTCTHR, 0xff},
++                                  {DMTCONE, 0, DMTCTWO, 0xff},
++                                  {DMTCONE, 0, DMTCONE, 0xff}},
++                                 {{DMTCONE, DMTCONE, 0, 0xff},
++                                  {DMTCTWO, DMTCONE, 0, 0xff},
++                                  {DMTCTHR, DMTCONE, 0, 0xff},
++                                  {DMTCFOR, DMTCONE, 0, 0xff},
++                                  {0, DMTCONE, DMTCFOR, 0xff},
++                                  {0, DMTCONE, DMTCTHR, 0xff},
++                                  {0, DMTCONE, DMTCTWO, 0xff},
++                                  {0, DMTCONE, DMTCONE, 0xff}}}},
++                               {{DMTCLEAR,
++                                 {{DMTCONE, 0, DMTCONE, 0xff},
++                                  {DMTCTWO, 0, DMTCONE, 0xff},
++                                  {DMTCTHR, 0, DMTCONE, 0xff},
++                                  {DMTCFOR, 0, DMTCONE, 0xff},
++                                  {0, DMTCFOR, DMTCONE, 0xff},
++                                  {0, DMTCTHR, DMTCONE, 0xff},
++                                  {0, DMTCTWO, DMTCONE, 0xff},
++                                  {0, DMTCONE, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCTWO, 0, DMTCONE, 0xff},
++                                  {DMTCTHR, 0, DMTCONE, 0xff},
++                                  {DMTCFOR, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCFOR, DMTCONE, 0xff},
++                                  {0, DMTCTHR, DMTCONE, 0xff},
++                                  {0, DMTCTWO, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCTHR, 0, DMTCONE, 0xff},
++                                  {DMTCFOR, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCFOR, DMTCONE, 0xff},
++                                  {0, DMTCTHR, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCFOR, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCFOR, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCEIG, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCEIG, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCSEV, 0, DMTCONE, 0xff},
++                                  {DMTCEIG, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCEIG, DMTCONE, 0xff},
++                                  {0, DMTCSEV, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCSIX, 0, DMTCONE, 0xff},
++                                  {DMTCSEV, 0, DMTCONE, 0xff},
++                                  {DMTCEIG, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, 0, DMTCONE, 0xff},
++                                  {0, DMTCEIG, DMTCONE, 0xff},
++                                  {0, DMTCSEV, DMTCONE, 0xff},
++                                  {0, DMTCSIX, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR},
++                                {DMTCLEAR,
++                                 {{DMTCFIV, 0, DMTCONE, 0xff},
++                                  {DMTCSIX, 0, DMTCONE, 0xff},
++                                  {DMTCSEV, 0, DMTCONE, 0xff},
++                                  {DMTCEIG, 0, DMTCONE, 0xff},
++                                  {0, DMTCEIG, DMTCONE, 0xff},
++                                  {0, DMTCSEV, DMTCONE, 0xff},
++                                  {0, DMTCSIX, DMTCONE, 0xff},
++                                  {0, DMTCFIV, DMTCONE, 0xff}},
++                                 DMTCLEAR,
++                                 DMTCLEAR}}},
++        sizeof(texture_0_t),
+     },
+ };
+diff -bNur 0004cube/data.h 0005texture/data.h
+--- 0004cube/data.h	2019-03-02 19:55:02.557358008 -0600
++++ 0005texture/data.h	2019-03-02 19:55:02.557358008 -0600
+@@ -31,8 +31,7 @@
+ extern const struct data_model_index *data_model_index;
+ extern const VkDeviceSize data_model_index_size;
+ 
+-typedef struct
+-{
++typedef struct {
+         char *name;
+         uint32_t first;
+         uint32_t count;
+@@ -44,8 +43,7 @@
+ #define FROM_UNIFORM_ALLOC(x) (x * UNIFORM_ALIGN)
+ #define TO_UNIFORM_ALLOC(x) ((x + UNIFORM_ALIGN - 1) / UNIFORM_ALIGN)
+ #define UNIFORM_SIZE (4096 * 4096)
+-typedef struct
+-{
++typedef struct {
+         VkDescriptorSet descriptor_set;
+         size_t offset;
+         size_t range;
+@@ -54,8 +52,7 @@
+ } uniform_map_t;
+ extern void (*data_setup_model_instance)(uniform_map_t *uniform_map);
+ 
+-typedef struct data_model_instance
+-{
++typedef struct data_model_instance {
+         char *name;
+         size_t model;
+         struct list_head list;
+@@ -64,21 +61,23 @@
+ } data_model_instance_t;
+ extern struct list_head data_model_instances;
+ 
+-typedef struct
+-{
+-        struct
+-        {
++typedef struct {
++  struct {
+                 const void *spv;
+                 const size_t *size;
+         } vert, frag;
+ } data_material_shader_t;
+ extern const data_material_shader_t data_material_shaders[];
+ 
+-typedef struct
+-{
++typedef struct {
+         char *name;
+         size_t shader;
+         VkDeviceSize ubo_vertex_shader_size;
++  VkFormat texture_format;
++  uint32_t texture_width;
++  uint32_t texture_height;
++  void *texture;
++  VkDeviceSize texture_size;
+ } data_material_t;
+ extern const data_material_t data_materials[];
+ 
+diff -bNur 0004cube/vulkan.c 0005texture/vulkan.c
+--- 0004cube/vulkan.c	2019-03-02 20:06:22.817345540 -0600
++++ 0005texture/vulkan.c	2019-03-03 15:05:42.770226379 -0600
+@@ -25,10 +25,12 @@
+ VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+ VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+ VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
++VkSampler texture_image_sampler;
+ VkBuffer vertex_buffer = VK_NULL_HANDLE;
+ VkDeviceMemory vertex_buffer_memmory = VK_NULL_HANDLE;
+ VkBuffer index_buffer = VK_NULL_HANDLE;
+ VkDeviceMemory index_buffer_memmory = VK_NULL_HANDLE;
++VkImageView *texture_image_views;
+ VkCommandPool command_pool = VK_NULL_HANDLE;
+ VkSemaphore wait_semaphore = VK_NULL_HANDLE;
+ VkFence queue_submit_fence = VK_NULL_HANDLE;
+@@ -588,7 +590,7 @@
+ 
+ inline static void create_descriptor_set_layout()
+ {
+-        VkDescriptorSetLayoutBinding set_layout_bindings[1];
++        VkDescriptorSetLayoutBinding set_layout_bindings[2];
+         static const VkDescriptorSetLayoutBinding EmptyVkDescriptorSetLayoutBinding;
+         set_layout_bindings[0] = EmptyVkDescriptorSetLayoutBinding;
+         set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+@@ -596,6 +598,13 @@
+         set_layout_bindings[0].binding = 0;
+         set_layout_bindings[0].descriptorCount = 1;
+ 
++        set_layout_bindings[1] = EmptyVkDescriptorSetLayoutBinding;
++        set_layout_bindings[1].descriptorType =
++            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
++        set_layout_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
++        set_layout_bindings[1].binding = 1;
++        set_layout_bindings[1].descriptorCount = 1;
++
+         VkDescriptorSetLayoutCreateInfo set_layout_create_info;
+         static const VkDescriptorSetLayoutCreateInfo
+             EmptyVkDescriptorSetLayoutCreateInfo;
+@@ -603,7 +612,8 @@
+         set_layout_create_info.sType =
+             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+         set_layout_create_info.pBindings = set_layout_bindings;
+-        set_layout_create_info.bindingCount = 1;
++        set_layout_create_info.bindingCount =
++            sizeof(set_layout_bindings) / sizeof(set_layout_bindings[0]);
+ 
+         VkResult err;
+         err = vkCreateDescriptorSetLayout(device, &set_layout_create_info, NULL,
+@@ -663,7 +673,7 @@
+         uniform_descriptors[0].offset = FROM_UNIFORM_ALLOC(map->offset);
+         uniform_descriptors[0].range = FROM_UNIFORM_ALLOC(map->range);
+ 
+-        VkWriteDescriptorSet write_descriptor_sets[1];
++        VkWriteDescriptorSet write_descriptor_sets[2];
+         static const VkWriteDescriptorSet EmptyVkWriteDescriptorSet;
+         write_descriptor_sets[0] = EmptyVkWriteDescriptorSet;
+         write_descriptor_sets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+@@ -673,7 +683,25 @@
+         write_descriptor_sets[0].pBufferInfo = uniform_descriptors;
+         write_descriptor_sets[0].descriptorCount = 1;
+ 
+-        vkUpdateDescriptorSets(device, 1, write_descriptor_sets, 0, NULL);
++        VkDescriptorImageInfo image_info;
++        static const VkDescriptorImageInfo EmptyVkDescriptorImageInfo;
++        image_info = EmptyVkDescriptorImageInfo;
++        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++        image_info.imageView = texture_image_views[0];
++        image_info.sampler = texture_image_sampler;
++
++        write_descriptor_sets[1] = EmptyVkWriteDescriptorSet;
++        write_descriptor_sets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++        write_descriptor_sets[1].dstSet = map->descriptor_set;
++        write_descriptor_sets[1].descriptorType =
++            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
++        write_descriptor_sets[1].dstBinding = 1;
++        write_descriptor_sets[1].pImageInfo = &image_info;
++        write_descriptor_sets[1].descriptorCount = 1;
++
++        vkUpdateDescriptorSets(
++            device, sizeof(write_descriptor_sets) / sizeof(write_descriptor_sets[0]),
++            write_descriptor_sets, 0, NULL);
+ }
+ 
+ void setup_model_instance(uniform_map_t *uniform_map)
+@@ -699,11 +727,39 @@
+         assert((err == VK_SUCCESS) && "vkCreatePipelineLayout: Failed.");
+ }
+ 
++inline static void create_texture_image_sampler()
++{
++        VkSamplerCreateInfo sampler_info;
++        static const VkSamplerCreateInfo EmptyVkSamplerCreateInfo;
++        sampler_info = EmptyVkSamplerCreateInfo;
++        sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
++        sampler_info.magFilter = VK_FILTER_LINEAR;
++        sampler_info.minFilter = VK_FILTER_LINEAR;
++        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
++        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
++        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
++        sampler_info.anisotropyEnable = VK_FALSE;
++        sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
++        sampler_info.unnormalizedCoordinates = VK_FALSE;
++        sampler_info.compareEnable = VK_FALSE;
++        sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
++        sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
++        sampler_info.mipLodBias = 0.0f;
++        sampler_info.minLod = 0.0f;
++        sampler_info.maxLod = 0.0f;
++
++        VkResult err;
++        err =
++            vkCreateSampler(device, &sampler_info, NULL, &texture_image_sampler);
++        assert((err == VK_SUCCESS) && "vkCreateSampler: Failed.");
++}
++
+ inline static void setup_descriptor_set()
+ {
+         create_descriptor_set_layout();
+         create_descriptor_pool();
+         create_pipeline_layout();
++        create_texture_image_sampler();
+ }
+ 
+ inline static void create_vertex_buffer()
+@@ -844,6 +900,124 @@
+         vkUnmapMemory(device, index_buffer_memmory);
+ }
+ 
++inline static void create_texture_images(VkImage *texture_images)
++{
++        VkImageCreateInfo image_create_info;
++        static const VkImageCreateInfo EmptyVkImageViewCreateInfo;
++        image_create_info = EmptyVkImageViewCreateInfo;
++        image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
++        image_create_info.imageType = VK_IMAGE_TYPE_2D;
++        image_create_info.format = data_materials[0].texture_format;
++        image_create_info.extent.width = data_materials[0].texture_width;
++        image_create_info.extent.height = data_materials[0].texture_height;
++        image_create_info.extent.depth = 1;
++        image_create_info.mipLevels = 1;
++        image_create_info.arrayLayers = 1;
++        image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
++        image_create_info.tiling = VK_IMAGE_TILING_LINEAR;
++        image_create_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
++        image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++        image_create_info.queueFamilyIndexCount = VK_QUEUE_FAMILY_IGNORED;
++        image_create_info.pQueueFamilyIndices = NULL;
++        image_create_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
++
++        VkResult err;
++        err = vkCreateImage(device, &image_create_info, NULL, &texture_images[0]);
++        assert((err == VK_SUCCESS) && "vkCreateImage: Failed texture.");
++}
++
++inline static void
++allocate_texture_image(VkImage texture_image,
++                       VkPhysicalDeviceMemoryProperties gpu_memory_properties,
++                       VkDeviceMemory *texture_image_memory)
++{
++        VkMemoryAllocateInfo memory_allocate_info;
++        static const VkMemoryAllocateInfo EmptyVkMemoryAllocateInfo;
++        memory_allocate_info = EmptyVkMemoryAllocateInfo;
++        memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
++
++        VkMemoryRequirements image_memory_requirements;
++        vkGetImageMemoryRequirements(device, texture_image,
++                                     &image_memory_requirements);
++        memory_allocate_info.allocationSize = image_memory_requirements.size;
++
++        memory_allocate_info.memoryTypeIndex = UINT32_MAX;
++        for (size_t i = 0; i < gpu_memory_properties.memoryTypeCount; i++)
++        {
++                if ((image_memory_requirements.memoryTypeBits & (1 << i)) &&
++                    ((gpu_memory_properties.memoryTypes[i].propertyFlags &
++                      (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
++                     (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)))
++                {
++                        memory_allocate_info.memoryTypeIndex = i;
++                        break;
++                }
++        }
++        assert((memory_allocate_info.memoryTypeIndex != UINT32_MAX) &&
++               "Couldn't locate texture memory.");
++
++        VkResult err;
++        err = vkAllocateMemory(device, &memory_allocate_info, NULL,
++                               texture_image_memory);
++        assert((err == VK_SUCCESS) && "vkAllocateMemory: Failed texture.");
++        err = vkBindImageMemory(device, texture_image, *texture_image_memory, 0);
++        assert((err == VK_SUCCESS) && "vkBindImageMemory: Failed texture.");
++}
++
++inline static void
++setup_texture_images(VkImage *texture_images,
++                     VkPhysicalDeviceMemoryProperties gpu_memory_properties,
++                     VkDeviceMemory *texture_image_memorys)
++{
++        create_texture_images(texture_images);
++        allocate_texture_image(texture_images[0], gpu_memory_properties,
++                               &texture_image_memorys[0]);
++
++        void *data;
++        vkMapMemory(device, texture_image_memorys[0], 0,
++                    data_materials[0].texture_size, 0, &data);
++        memcpy(data, data_materials[0].texture, data_materials[0].texture_size);
++        vkUnmapMemory(device, texture_image_memorys[0]);
++}
++
++inline static void create_image_views(VkImage *texture_images)
++{
++        VkImageViewCreateInfo image_view_create_info;
++        static const VkImageViewCreateInfo EmptyVkImageViewCreateInfo;
++        image_view_create_info = EmptyVkImageViewCreateInfo;
++        image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
++        image_view_create_info.image = texture_images[0];
++        image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
++        image_view_create_info.format = data_materials[0].texture_format;
++        image_view_create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
++        image_view_create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
++        image_view_create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
++        image_view_create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
++        image_view_create_info.subresourceRange.aspectMask =
++            VK_IMAGE_ASPECT_COLOR_BIT;
++        image_view_create_info.subresourceRange.baseMipLevel = 0;
++        image_view_create_info.subresourceRange.levelCount = 1;
++        image_view_create_info.subresourceRange.baseArrayLayer = 0;
++        image_view_create_info.subresourceRange.layerCount = 1;
++
++        VkResult err;
++        err = vkCreateImageView(device, &image_view_create_info, NULL,
++                                &texture_image_views[0]);
++        assert((err == VK_SUCCESS) && "vkCreateImageView: Failed texture.");
++}
++
++inline static void
++setup_textures(VkImage *texture_images,
++               VkPhysicalDeviceMemoryProperties gpu_memory_properties,
++               VkDeviceMemory *texture_image_memorys)
++{
++        setup_texture_images(texture_images, gpu_memory_properties,
++                             texture_image_memorys);
++        create_image_views(texture_images);
++}
++
+ inline static void create_shaders(VkShaderModule *vert_modules,
+                                   VkShaderModule *frag_modules)
+ {
+@@ -1027,10 +1201,14 @@
+         assert((err == VK_SUCCESS) && "vkCreateGraphicsPipelines: Failed.");
+ }
+ 
+-inline static void setup_materials(VkShaderModule *vert_modules,
++inline static void setup_materials(VkImage *texture_images,
++                                   VkPhysicalDeviceMemoryProperties gpu_memory_properties,
++                                   VkDeviceMemory *texture_image_memorys,
++                                   VkShaderModule *vert_modules,
+                                    VkShaderModule *frag_modules,
+                                    VkPipeline *graphics_pipelines)
+ {
++        setup_textures(texture_images, gpu_memory_properties, texture_image_memorys);
+         create_shaders(vert_modules, frag_modules);
+         create_graphice_pipelines(vert_modules, frag_modules, graphics_pipelines);
+ }
+@@ -1130,6 +1308,28 @@
+         assert((err == VK_SUCCESS) && "vkBeginCommandBuffer: Failed.");
+ }
+ 
++inline static void image_barriers(VkCommandBuffer command_buffer, VkImage *texture_images)
++{
++        VkImageMemoryBarrier barriers[1];
++        static const VkImageMemoryBarrier EmptyVkImageMemoryBarrier;
++        barriers[0] = EmptyVkImageMemoryBarrier;
++        barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
++        barriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
++        barriers[0].oldLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
++        barriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++        barriers[0].image = texture_images[0];
++        barriers[0].subresourceRange = (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
++
++        vkCmdPipelineBarrier(
++            command_buffer,
++            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
++            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
++            0,
++            0, VK_NULL_HANDLE,
++            0, VK_NULL_HANDLE,
++            1, barriers);
++}
++
+ inline static void begin_render_pass(VkCommandBuffer command_buffer,
+                                      uint32_t active_swapchain_image_id)
+ {
+@@ -1179,11 +1379,17 @@
+         vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+ }
+ 
+-inline static void record_commands(VkCommandBuffer command_buffer,
++inline static void record_commands(VkCommandBuffer command_buffer, VkImage *texture_images,
+                                    uint32_t active_swapchain_image_id,
+                                    VkPipeline *graphics_pipelines)
+ {
+         begin_command_buffer(command_buffer);
++
++        static bool init = true;
++        if (init)
++                image_barriers(command_buffer, texture_images);
++        init = false;
++
+         begin_render_pass(command_buffer, active_swapchain_image_id);
+         set_viewport(command_buffer);
+ 
+@@ -1265,6 +1471,7 @@
+ }
+ 
+ inline static void blocking_render_loop(uint32_t queue_family_index,
++                                        VkImage *texture_images,
+                                         VkPipeline *graphics_pipelines)
+ {
+         VkCommandBuffer command_buffer;
+@@ -1288,7 +1495,8 @@
+                 VkResult err;
+                 err = vkResetCommandPool(device, command_pool, 0);
+                 assert((err == VK_SUCCESS) && "vkResetCommandPool: Failed.");
+-                record_commands(command_buffer, active_swapchain_image_id,
++                record_commands(command_buffer, texture_images,
++                                active_swapchain_image_id,
+                                 graphics_pipelines);
+                 submit_queue(queue, command_buffer);
+                 fences();
+@@ -1300,10 +1508,10 @@
+         vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+ }
+ 
+-inline static void clean_up(VkPipeline *graphics_pipelines,
+-                            VkShaderModule *frag_modules,
+-                            VkShaderModule *vert_modules,
+-                            uint32_t swapchain_image_count)
++inline static void
++clean_up(VkImage *texture_images, VkDeviceMemory *texture_image_memorys,
++         VkPipeline *graphics_pipelines, VkShaderModule *frag_modules,
++         VkShaderModule *vert_modules, uint32_t swapchain_image_count)
+ {
+         vkDestroyFence(device, acquire_next_image_fence, NULL);
+         acquire_next_image_fence = VK_NULL_HANDLE;
+@@ -1337,6 +1545,14 @@
+             ->uniform_map->descriptor_set = VK_NULL_HANDLE;
+         vkDestroyDescriptorSetLayout(device, descriptor_set_layout, NULL);
+         descriptor_set_layout = VK_NULL_HANDLE;
++        vkDestroySampler(device, texture_image_sampler, NULL);
++        texture_image_sampler = VK_NULL_HANDLE;
++        vkDestroyImageView(device, texture_image_views[0], NULL);
++        texture_image_views[0] = VK_NULL_HANDLE;
++        vkFreeMemory(device, texture_image_memorys[0], NULL);
++        texture_image_memorys[0] = VK_NULL_HANDLE;
++        vkDestroyImage(device, texture_images[0], NULL);
++        texture_images[0] = VK_NULL_HANDLE;
+         vkUnmapMemory(device, uniform_buffer_memmory);
+         list_entry(data_model_instances.next, data_model_instance_t, list)->ubo =
+             NULL;
+@@ -1400,18 +1616,22 @@
+         setup_vertex_buffer(gpu_memory_properties);
+         setup_index_buffer(gpu_memory_properties);
+ 
++        VkImage texture_images[] = {VK_NULL_HANDLE};
++        VkDeviceMemory texture_image_memorys[] = {VK_NULL_HANDLE};
++        VkImageView _texture_image_views[] = {VK_NULL_HANDLE};
++        texture_image_views = _texture_image_views;
+         VkShaderModule vert_modules[] = {VK_NULL_HANDLE};
+         VkShaderModule frag_modules[] = {VK_NULL_HANDLE};
+         VkPipeline graphics_pipelines[] = {VK_NULL_HANDLE};
+-        setup_materials(vert_modules, frag_modules, graphics_pipelines);
++        setup_materials(texture_images, gpu_memory_properties, texture_image_memorys, vert_modules, frag_modules, graphics_pipelines);
+ 
+         data_setup_model_instance = setup_model_instance;
+         data_init(extent);
+ 
+         create_command_pool(queue_family_index);
+-        blocking_render_loop(queue_family_index, graphics_pipelines);
++        blocking_render_loop(queue_family_index, texture_images, graphics_pipelines);
+ 
+-        clean_up(graphics_pipelines, frag_modules, vert_modules,
+-                 swapchain_image_count);
++        clean_up(texture_images, texture_image_memorys, graphics_pipelines,
++                 frag_modules, vert_modules, swapchain_image_count);
+         exit(0);
+ }

@@ -1,0 +1,194 @@
+diff -bNur 0001uniform-buffer-object/0_frag.glsl 0002lighting/0_frag.glsl
+--- 0001uniform-buffer-object/0_frag.glsl	2019-03-02 19:55:02.545357702 -0600
++++ 0002lighting/0_frag.glsl	2019-03-02 19:55:02.549357804 -0600
+@@ -3,9 +3,43 @@
+ #extension GL_ARB_separate_shader_objects : enable
+ #extension GL_ARB_shading_language_420pack : enable
+ 
++layout (location = 0) in vec2 inUV;
++layout (location = 1) in vec3 inNormal;
++layout (location = 2) in vec3 inViewVec;
++layout (location = 3) in vec3 inLightVec;
++
+ layout (location = 0) out vec4 outFragColor;
+ 
+ void main() 
+ {
+-	outFragColor = vec4(0.0, 0.0, 0.059, 1.0);
++    vec4 color = vec4(0.0, 0.0, 0.059, 1.0);
++
++    vec3 normal = normalize(inNormal);
++    vec3 surfaceToLight = normalize(inLightVec);
++    vec3 surfaceToCamera = normalize(inViewVec);
++
++    //ambient
++    vec3 ambient = color.rgb / 150.0;
++
++    //diffuse
++    float diffuseCoefficient = max(0.0, dot(normal, surfaceToLight));
++    vec3 diffuse = diffuseCoefficient * color.rgb / 15.0;
++
++    //specular
++    float specularCoefficient = 0.0;
++    if(diffuseCoefficient > 0.0)
++        specularCoefficient = pow(max(0.0, dot(surfaceToCamera, reflect(-surfaceToLight, normal))), 8);
++    vec3 specular = specularCoefficient * vec3(255,255,255);
++
++    //attenuation
++    float distanceToLight = length(inLightVec);
++    float attenuation = 1.0 / (1.0 + 0.2 * pow(distanceToLight, 2));
++
++    //linear color (color before gamma correction)
++    vec3 linearColor = ambient + attenuation*(diffuse + specular);
++
++    //final color (after gamma correction)
++    vec3 gamma = vec3(1.0/2.2);
++
++    outFragColor = vec4(pow(linearColor, gamma), color.a);
+ }
+diff -bNur 0001uniform-buffer-object/0_vert.glsl 0002lighting/0_vert.glsl
+--- 0001uniform-buffer-object/0_vert.glsl	2019-03-02 19:55:02.545357702 -0600
++++ 0002lighting/0_vert.glsl	2019-03-02 19:55:02.549357804 -0600
+@@ -4,6 +4,10 @@
+ #extension GL_ARB_shading_language_420pack : enable
+ 
+ layout (location = 0) in vec3 inPos;
++layout (location = 1) in vec3 inNormal;
++layout (location = 2) in vec2 inUV;
++layout (location = 3) in vec4 inBoneWeights;
++layout (location = 4) in ivec4 inBoneIDs;
+ 
+ #define MAX_BONES 64
+ 
+@@ -18,11 +22,29 @@
+ 	float padb;
+ } ubo;
+ 
++layout (location = 0) out vec2 outUV;
++layout (location = 1) out vec3 outNormal;
++layout (location = 2) out vec3 outViewVec;
++layout (location = 3) out vec3 outLightVec;
++
+ out gl_PerVertex 
+ {
+ 	vec4 gl_Position;   
+ };
+ 
+ void main() {
+-	gl_Position = ubo.vp * ubo.model * vec4(inPos, 1.0);
++	mat4 boneTransform = ubo.bones[inBoneIDs[0]] * inBoneWeights[0];
++	boneTransform     += ubo.bones[inBoneIDs[1]] * inBoneWeights[1];
++	boneTransform     += ubo.bones[inBoneIDs[2]] * inBoneWeights[2];
++	boneTransform     += ubo.bones[inBoneIDs[3]] * inBoneWeights[3];	
++
++	outUV = inUV;
++
++	mat4 skinPos = ubo.model * boneTransform;
++	gl_Position = ubo.vp * skinPos * vec4(inPos, 1.0);
++
++	vec4 pos = skinPos * vec4(inPos, 1.0);
++	outNormal = inverse(transpose(mat3(skinPos))) * inNormal;
++	outLightVec = ubo.lightPos - pos.xyz;
++	outViewVec = ubo.viewPos - pos.xyz;
+ }
+diff -bNur 0001uniform-buffer-object/data_bulk.c 0002lighting/data_bulk.c
+--- 0001uniform-buffer-object/data_bulk.c	2019-03-02 20:06:22.813345353 -0600
++++ 0002lighting/data_bulk.c	2019-03-02 20:06:22.813345353 -0600
+@@ -3,14 +3,42 @@
+ typedef struct
+ {
+         vec3 position;
++        vec3 normal;
++        float uv[2];
++        float boneWeights[MAX_BONES_PER_VERTEX];
++        uint32_t boneIDs[MAX_BONES_PER_VERTEX];
+ } vertex_t;
+ const vertex_t model_vertex[] = {
+-    {{0.5f, -0.5f, -0.5f}},
+-    {{0.5f, 0.5f, -0.5f}},
+-    {{-0.5f, 0.5f, -0.5f}},
+-    {{0.5f, -0.5f, -0.5f}},
+-    {{-0.5f, 0.5f, -0.5f}},
+-    {{-0.5f, -0.5f, -0.5f}},
++    {{-0.5f, 0.5f, -0.5f},
++     {0.0f, 0.0f, -1.0f},
++     {0.0f, 2.0f / 3.0f},
++     {1.0f, 0.0f, 0.0f, 0.0f},
++     {0, 0, 0, 0}},
++    {{-0.5f, -0.5f, -0.5f},
++     {0.0f, 0.0f, -1.0f},
++     {0.25f, 1.0f / 3.0f},
++     {1.0f, 0.0f, 0.0f, 0.0f},
++     {0, 0, 0, 0}},
++    {{0.5f, -0.5f, -0.5f},
++     {0.0f, 0.0f, -1.0f},
++     {0.0f, 1.0f / 3.0f},
++     {1.0f, 0.0f, 0.0f, 0.0f},
++     {0, 0, 0, 0}},
++    {{-0.5f, 0.5f, -0.5f},
++     {0.0f, 0.0f, -1.0f},
++     {0.0f, 2.0f / 3.0f},
++     {1.0f, 0.0f, 0.0f, 0.0f},
++     {0, 0, 0, 0}},
++    {{0.5f, -0.5f, -0.5f},
++     {0.0f, 0.0f, -1.0f},
++     {0.25f, 1.0f / 3.0f},
++     {1.0f, 0.0f, 0.0f, 0.0f},
++     {0, 0, 0, 0}},
++    {{0.5f, 0.5f, -0.5f},
++     {0.0f, 0.0f, -1.0f},
++     {0.25f, 2.0f / 3.0f},
++     {1.0f, 0.0f, 0.0f, 0.0f},
++     {0, 0, 0, 0}},
+ };
+ const void *data_model_vertex = model_vertex;
+ const VkDeviceSize data_model_vertex_size = sizeof(model_vertex);
+@@ -23,6 +51,22 @@
+      .binding = 0,
+      .format = VK_FORMAT_R32G32B32_SFLOAT,
+      .offset = offsetof(vertex_t, position)},
++    {.location = 1,
++     .binding = 0,
++     .format = VK_FORMAT_R32G32B32_SFLOAT,
++     .offset = offsetof(vertex_t, normal)},
++    {.location = 2,
++     .binding = 0,
++     .format = VK_FORMAT_R32G32_SFLOAT,
++     .offset = offsetof(vertex_t, uv)},
++    {.location = 3,
++     .binding = 0,
++     .format = VK_FORMAT_R32G32B32A32_SFLOAT,
++     .offset = offsetof(vertex_t, boneWeights)},
++    {.location = 4,
++     .binding = 0,
++     .format = VK_FORMAT_R32G32B32A32_SINT,
++     .offset = offsetof(vertex_t, boneIDs)},
+ };
+ const uint32_t data_attribute_descriptions_count =
+     sizeof(data_attribute_descriptions) /
+diff -bNur 0001uniform-buffer-object/data.h 0002lighting/data.h
+--- 0001uniform-buffer-object/data.h	2019-03-02 19:55:02.549357804 -0600
++++ 0002lighting/data.h	2019-03-02 19:55:02.549357804 -0600
+@@ -16,6 +16,9 @@
+ void data_init(VkExtent2D extent);
+ void data_update();
+ 
++// Maximum number of bones per vertex
++#define MAX_BONES_PER_VERTEX 4
++
+ extern uintptr_t data_uniform_ptr;
+ 
+ extern const void *data_model_vertex;
+diff -bNur 0001uniform-buffer-object/libdata.c 0002lighting/libdata.c
+--- 0001uniform-buffer-object/libdata.c	2019-03-02 20:06:22.813345353 -0600
++++ 0002lighting/libdata.c	2019-03-02 20:06:22.813345353 -0600
+@@ -162,6 +162,9 @@
+                 *ubo_0 = empty_data_material_ubo_s;
+         }
+         glm_mat4_copy(GLM_MAT4_IDENTITY, ubo_0->bones[0]);
++        ubo_0->lightPos[0] = 0.0f;
++        ubo_0->lightPos[1] = 250.0f;
++        ubo_0->lightPos[2] = -250.0f;
+         ubo_0->viewPos[0] = 0.0f;
+         ubo_0->viewPos[1] = 0.0f;
+         ubo_0->viewPos[2] = -2.0f;

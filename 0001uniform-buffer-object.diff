@@ -1,0 +1,682 @@
+diff -bNur 0000tri/0_vert.glsl 0001uniform-buffer-object/0_vert.glsl
+--- 0000tri/0_vert.glsl	2019-03-02 19:55:02.545357702 -0600
++++ 0001uniform-buffer-object/0_vert.glsl	2019-03-02 19:55:02.545357702 -0600
+@@ -5,11 +5,24 @@
+ 
+ layout (location = 0) in vec3 inPos;
+ 
++#define MAX_BONES 64
++
++layout (binding = 0) uniform UBO 
++{
++	mat4 model;
++	mat4 bones[MAX_BONES];
++	mat4 vp;
++	vec3 lightPos;
++	float pada;
++	vec3 viewPos;
++	float padb;
++} ubo;
++
+ out gl_PerVertex 
+ {
+ 	vec4 gl_Position;   
+ };
+ 
+ void main() {
+-	gl_Position = vec4(inPos, 1.0);
++	gl_Position = ubo.vp * ubo.model * vec4(inPos, 1.0);
+ }
+diff -bNur 0000tri/data_bulk.c 0001uniform-buffer-object/data_bulk.c
+--- 0000tri/data_bulk.c	2019-03-02 20:06:22.809345166 -0600
++++ 0001uniform-buffer-object/data_bulk.c	2019-03-02 20:06:22.813345353 -0600
+@@ -1,17 +1,18 @@
+-#include "data.h"
++#include "data_bulk.h"
+ 
+ typedef struct
+ {
+         vec3 position;
+ } vertex_t;
+ const vertex_t model_vertex[] = {
+-    {{0.0f, -0.5f, 0.5f}},
+-    {{0.5f, 0.5f, 0.5f}},
+-    {{-0.5f, 0.5f, 0.5f}},
++    {{0.5f, -0.5f, -0.5f}},
++    {{0.5f, 0.5f, -0.5f}},
++    {{-0.5f, 0.5f, -0.5f}},
++    {{0.5f, -0.5f, -0.5f}},
++    {{-0.5f, 0.5f, -0.5f}},
++    {{-0.5f, -0.5f, -0.5f}},
+ };
+ const void *data_model_vertex = model_vertex;
+-const size_t data_model_vertex_count =
+-    sizeof(model_vertex) / sizeof(vertex_t);
+ const VkDeviceSize data_model_vertex_size = sizeof(model_vertex);
+ const VkVertexInputBindingDescription data_binding_description = {
+     .binding = 0,
+@@ -26,3 +27,20 @@
+ const uint32_t data_attribute_descriptions_count =
+     sizeof(data_attribute_descriptions) /
+     sizeof(data_attribute_descriptions[0]);
++
++data_model_t data_models[] = {
++    {
++        "Square",
++        0,
++        sizeof(model_vertex) / sizeof(uint32_t),
++        0,
++    },
++};
++
++const data_material_t data_materials[] = {
++    {
++        "Example",
++        0,
++        sizeof(material_0_ubo_t),
++    },
++};
+diff -bNur 0000tri/data_bulk.h 0001uniform-buffer-object/data_bulk.h
+--- 0000tri/data_bulk.h	1969-12-31 18:00:00.000000000 -0600
++++ 0001uniform-buffer-object/data_bulk.h	2019-03-02 19:55:02.545357702 -0600
+@@ -0,0 +1,16 @@
++#include "data.h"
++
++// Maximum number of bones per mesh
++// Must not be higher than same const in skinning shader
++#define MAX_BONES 64
++
++typedef struct
++{
++        mat4 model;
++        mat4 bones[MAX_BONES];
++        mat4 vp;
++        vec3 lightPos;
++        float pada;
++        vec3 viewPos;
++        float padb;
++} material_0_ubo_t;
+diff -bNur 0000tri/data.h 0001uniform-buffer-object/data.h
+--- 0000tri/data.h	2019-03-02 19:55:02.545357702 -0600
++++ 0001uniform-buffer-object/data.h	2019-03-02 19:55:02.549357804 -0600
+@@ -1,5 +1,6 @@
+ #ifndef HAND_DATA_H__
+ #define HAND_DATA_H__
++#include "list.h"
+ 
+ #define GLFW_INCLUDE_VULKAN
+ #include <GLFW/glfw3.h>
+@@ -12,8 +13,12 @@
+ #endif
+ #include <cglm/cglm.h>
+ 
++void data_init(VkExtent2D extent);
++void data_update();
++
++extern uintptr_t data_uniform_ptr;
++
+ extern const void *data_model_vertex;
+-extern const size_t data_model_vertex_count;
+ extern const VkDeviceSize data_model_vertex_size;
+ 
+ extern const VkVertexInputBindingDescription data_binding_description;
+@@ -22,6 +27,39 @@
+ 
+ typedef struct
+ {
++        char *name;
++        uint32_t first;
++        uint32_t count;
++        size_t material;
++} data_model_t;
++extern data_model_t data_models[];
++
++#define UNIFORM_ALIGN (sizeof(float) * 4)
++#define FROM_UNIFORM_ALLOC(x) (x * UNIFORM_ALIGN)
++#define TO_UNIFORM_ALLOC(x) ((x + UNIFORM_ALIGN - 1) / UNIFORM_ALIGN)
++#define UNIFORM_SIZE (4096 * 4096)
++typedef struct
++{
++        VkDescriptorSet descriptor_set;
++        size_t offset;
++        size_t range;
++        size_t width;
++        struct list_head list;
++} uniform_map_t;
++extern void (*data_setup_model_instance)(uniform_map_t *uniform_map);
++
++typedef struct data_model_instance
++{
++        char *name;
++        size_t model;
++        struct list_head list;
++        void *ubo;
++        uniform_map_t *uniform_map;
++} data_model_instance_t;
++extern struct list_head data_model_instances;
++
++typedef struct
++{
+         struct
+         {
+                 const void *spv;
+@@ -30,4 +68,12 @@
+ } data_material_shader_t;
+ extern const data_material_shader_t data_material_shaders[];
+ 
++typedef struct
++{
++        char *name;
++        size_t shader;
++        VkDeviceSize ubo_vertex_shader_size;
++} data_material_t;
++extern const data_material_t data_materials[];
++
+ #endif
+diff -bNur 0000tri/libdata.c 0001uniform-buffer-object/libdata.c
+--- 0000tri/libdata.c	2019-03-02 20:06:22.809345166 -0600
++++ 0001uniform-buffer-object/libdata.c	2019-03-02 20:06:22.813345353 -0600
+@@ -1,4 +1,19 @@
+-#include "data.h"
++#include "data_bulk.h"
++#include <math.h>
++#include <stdbool.h>
++
++void key_callback(GLFWwindow *window, int key, int scancode, int action,
++                  int mods)
++{
++        switch (key)
++        {
++        case GLFW_KEY_ESCAPE:
++                glfwSetWindowShouldClose(window, true);
++                break;
++        }
++}
++
++float center_dir = 0;
+ 
+ GLFWwindow *data_window = NULL;
+ 
+@@ -16,3 +31,204 @@
+          &material_shader_0_frag_size,
+      }},
+ };
++
++struct list_head data_model_instances;
++struct
++{
++        data_model_instance_t obj;
++} model_instance = {
++    {"Object",
++     0,
++     {&(data_model_instances), &(data_model_instances)},
++     NULL,
++     NULL},
++};
++struct list_head data_model_instances = {&(model_instance.obj.list),
++                                         &(model_instance.obj.list)};
++
++uniform_map_t starting_map;
++struct list_head uniform_maps = {&(starting_map.list), &(starting_map.list)};
++uniform_map_t starting_map = {
++    VK_NULL_HANDLE,
++    0,
++    0,
++    TO_UNIFORM_ALLOC(UNIFORM_SIZE),
++    {&(uniform_maps), &(uniform_maps)},
++};
++
++inline static void split_map(size_t size, uniform_map_t *map,
++                             uniform_map_t **ptr)
++{
++        uniform_map_t *this_map;
++        this_map = malloc(sizeof(uniform_map_t));
++        assert(this_map && "malloc(sizeof(uniform_map_t))");
++        this_map->descriptor_set = VK_NULL_HANDLE;
++        if (map->range)
++        {
++                this_map->offset = map->offset + map->range;
++                this_map->range = size;
++                this_map->width = map->width - map->range;
++                map->width = map->range;
++                list_add(&this_map->list, map->list.next);
++                *ptr = this_map;
++        }
++        else
++        {
++                this_map->offset = map->offset;
++                map->offset += this_map->width = this_map->range = size;
++                map->width -= size;
++                list_add(&this_map->list, &map->list);
++                *ptr = this_map;
++        }
++}
++
++uintptr_t data_uniform_ptr = 0;
++void (*data_setup_model_instance)(uniform_map_t *uniform_map);
++inline static void setup_model_instance(data_model_instance_t *inst)
++{
++        size_t size = TO_UNIFORM_ALLOC(
++            data_materials[data_models[inst->model].material].ubo_vertex_shader_size);
++        size_t contigious = 0;
++        size_t count = 0;
++        inst->uniform_map = NULL;
++        uniform_map_t *map;
++        list_for_each_entry(map, &uniform_maps, list)
++        {
++                if (map->range)
++                {
++                        contigious = 0;
++                        count = 0;
++                }
++                size_t free = map->width - map->range;
++                if (free)
++                {
++                        contigious += free;
++                        count++;
++                        if ((!map->range) && (free >= size) && (size * 2 > free))
++                        {
++                                map->range = size;
++                                inst->uniform_map = map;
++                                data_setup_model_instance(inst->uniform_map);
++                                break;
++                        }
++                        else if (size < free)
++                        {
++                                split_map(size, map, &inst->uniform_map);
++                                data_setup_model_instance(inst->uniform_map);
++                                break;
++                        }
++                        else if (size < free + contigious)
++                        {
++                                assert(!count && 0 && "TODO: Support for combining uniform maps.");
++                        }
++                }
++        }
++        assert(inst->uniform_map && "Out of uniform space.");
++        inst->ubo = (void *)(FROM_UNIFORM_ALLOC(inst->uniform_map->offset) +
++                             data_uniform_ptr);
++}
++
++mat4 projection;
++mat4 view;
++inline static void update_vp(material_0_ubo_t *ubo_0)
++{
++        glm_lookat(ubo_0->viewPos,
++                   (vec3){ubo_0->viewPos[0] + sinf(center_dir), ubo_0->viewPos[1],
++                          ubo_0->viewPos[2] + cosf(center_dir)},
++                   GLM_YUP, view);
++        glm_mat4_mul(projection, view, ubo_0->vp);
++}
++
++/*
++ * This code uses a float point frame counter.  To make your code easier
++ * u may want to resolve this to an integer.  One frame is the set of all
++ * player's turns.
++ */
++double previous_frame;
++
++void data_init(VkExtent2D extent)
++{
++        material_0_ubo_t *ubo_0;
++        data_model_instance_t *inst =
++            list_entry(data_model_instances.next, data_model_instance_t, list);
++
++        setup_model_instance(inst);
++        ubo_0 = inst->ubo;
++
++        glfwSetKeyCallback(data_window, key_callback);
++
++        {
++                static const material_0_ubo_t empty_data_material_ubo_s;
++                *ubo_0 = empty_data_material_ubo_s;
++        }
++        glm_mat4_copy(GLM_MAT4_IDENTITY, ubo_0->bones[0]);
++        ubo_0->viewPos[0] = 0.0f;
++        ubo_0->viewPos[1] = 0.0f;
++        ubo_0->viewPos[2] = -2.0f;
++
++        glm_mat4_copy(GLM_MAT4_IDENTITY, ubo_0->model);
++
++#ifdef NEWER_CGLM
++        glm_perspective_default((float)extent.width / (float)extent.height,
++                                projection);
++#else
++        mat4 oglproj;
++        glm_perspective_default((float)extent.width / (float)extent.height, oglproj);
++        /* This is for Vulkan, cglm is for OpenGL. */
++        glm_mat4_mul((mat4){{1.0f, 0.0f, 0.0f, 0.0f},
++                            {0.0f, -1.0f, 0.0f, 0.0f},
++                            {0.0f, 0.0f, 0.5f, 0.5f},
++                            {0.0f, 0.0f, 0.0f, 1.0f}},
++                     oglproj, projection);
++#endif
++
++        update_vp(ubo_0);
++
++        previous_frame = glfwGetTime();
++}
++
++inline static void handle_input(double this_frame, material_0_ubo_t *ubo_0)
++{
++        bool need_lookat = false;
++
++#define GET_KEY(key) glfwGetKey(data_window, (key))
++#define GET_KEY2(a, b) (GET_KEY(a) || GET_KEY(b))
++        if (GET_KEY2(GLFW_KEY_W, GLFW_KEY_UP) ^ GET_KEY2(GLFW_KEY_S, GLFW_KEY_DOWN))
++        {
++                double dist = 1.5 * (GET_KEY2(GLFW_KEY_W, GLFW_KEY_UP) ? this_frame - previous_frame
++                                                                       : previous_frame - this_frame);
++                ubo_0->viewPos[0] += sinf(center_dir) * dist;
++                ubo_0->viewPos[2] += cosf(center_dir) * dist;
++                need_lookat = true;
++        }
++
++        if (GET_KEY2(GLFW_KEY_A, GLFW_KEY_LEFT) ^ GET_KEY2(GLFW_KEY_D, GLFW_KEY_RIGHT))
++        {
++                center_dir += GET_KEY2(GLFW_KEY_A, GLFW_KEY_LEFT) ? this_frame - previous_frame
++                                                                  : previous_frame - this_frame;
++                need_lookat = true;
++        }
++
++        if (need_lookat)
++                update_vp(ubo_0);
++}
++
++void data_update()
++{
++        material_0_ubo_t *ubo_0 =
++            list_entry(data_model_instances.next, data_model_instance_t, list)->ubo;
++        double this_frame = glfwGetTime();
++
++        handle_input(this_frame, ubo_0);
++
++        /* TODO: Take turns. */
++
++        if (0)
++        {
++                mat4 model;
++                glm_mat4_copy(ubo_0->model, model);
++                glm_rotate_y(model, this_frame - previous_frame, ubo_0->model);
++        }
++
++        previous_frame = this_frame;
++}
+diff -bNur 0000tri/vulkan.c 0001uniform-buffer-object/vulkan.c
+--- 0000tri/vulkan.c	2019-03-03 14:31:34.815871615 -0600
++++ 0001uniform-buffer-object/vulkan.c	2019-03-02 20:06:22.813345353 -0600
+@@ -20,6 +20,10 @@
+ VkRenderPass render_pass = VK_NULL_HANDLE;
+ VkFramebuffer framebuffers[3] = {VK_NULL_HANDLE, VK_NULL_HANDLE,
+                                  VK_NULL_HANDLE};
++VkBuffer uniform_buffer = VK_NULL_HANDLE;
++VkDeviceMemory uniform_buffer_memmory = VK_NULL_HANDLE;
++VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
++VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+ VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+ VkBuffer vertex_buffer = VK_NULL_HANDLE;
+ VkDeviceMemory vertex_buffer_memmory = VK_NULL_HANDLE;
+@@ -516,6 +520,167 @@
+         }
+ }
+ 
++inline static void create_uniform_buffer()
++{
++        VkBufferCreateInfo buffer_info_create;
++        static const VkBufferCreateInfo EmptyVkBufferCreateInfo;
++        buffer_info_create = EmptyVkBufferCreateInfo;
++        buffer_info_create.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
++        buffer_info_create.size = UNIFORM_SIZE;
++        buffer_info_create.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
++        buffer_info_create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++
++        VkResult err;
++        err = vkCreateBuffer(device, &buffer_info_create, NULL, &uniform_buffer);
++        assert((err == VK_SUCCESS) && "vkCreateBuffer: Failed uniform buffer.");
++}
++
++inline static void allocate_uniform_buffer(
++    VkPhysicalDeviceMemoryProperties gpu_memory_properties)
++{
++        VkMemoryRequirements mememory_requirements;
++        vkGetBufferMemoryRequirements(device, uniform_buffer, &mememory_requirements);
++
++        VkMemoryAllocateInfo allocate_info;
++        static const VkMemoryAllocateInfo EmptyVkMemoryAllocateInfo;
++        allocate_info = EmptyVkMemoryAllocateInfo;
++        allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
++        allocate_info.allocationSize = mememory_requirements.size;
++
++        allocate_info.memoryTypeIndex = UINT32_MAX;
++        for (size_t i = 0; i < gpu_memory_properties.memoryTypeCount; ++i)
++        {
++                if ((mememory_requirements.memoryTypeBits & (1 << i)) &&
++                    ((gpu_memory_properties.memoryTypes[i].propertyFlags &
++                      (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
++                     (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)))
++                {
++                        allocate_info.memoryTypeIndex = i;
++                        break;
++                }
++        }
++        assert((allocate_info.memoryTypeIndex != UINT32_MAX) &&
++               "Failed to find suitable memory type for uniform.");
++
++        VkResult err;
++        err = vkAllocateMemory(device, &allocate_info, NULL, &uniform_buffer_memmory);
++        assert((err == VK_SUCCESS) && "vkAllocateMemory: Failed uniform buffer.");
++
++        err = vkBindBufferMemory(device, uniform_buffer, uniform_buffer_memmory, 0);
++        assert((err == VK_SUCCESS) && "vkBindBufferMemory: Failed uniform buffer.");
++}
++
++inline static void
++setup_uniform_buffer(VkPhysicalDeviceMemoryProperties gpu_memory_properties)
++{
++        create_uniform_buffer();
++        allocate_uniform_buffer(gpu_memory_properties);
++
++        VkResult err;
++        err = vkMapMemory(device, uniform_buffer_memmory, 0, UNIFORM_SIZE, 0,
++                          (void **)&data_uniform_ptr);
++        assert((err == VK_SUCCESS) && "vkMapMemory: Failed uniform buffer.");
++}
++
++inline static void create_descriptor_set_layout()
++{
++        VkDescriptorSetLayoutBinding set_layout_bindings[1];
++        static const VkDescriptorSetLayoutBinding EmptyVkDescriptorSetLayoutBinding;
++        set_layout_bindings[0] = EmptyVkDescriptorSetLayoutBinding;
++        set_layout_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++        set_layout_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
++        set_layout_bindings[0].binding = 0;
++        set_layout_bindings[0].descriptorCount = 1;
++
++        VkDescriptorSetLayoutCreateInfo set_layout_create_info;
++        static const VkDescriptorSetLayoutCreateInfo
++            EmptyVkDescriptorSetLayoutCreateInfo;
++        set_layout_create_info = EmptyVkDescriptorSetLayoutCreateInfo;
++        set_layout_create_info.sType =
++            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
++        set_layout_create_info.pBindings = set_layout_bindings;
++        set_layout_create_info.bindingCount = 1;
++
++        VkResult err;
++        err = vkCreateDescriptorSetLayout(device, &set_layout_create_info, NULL,
++                                          &descriptor_set_layout);
++        assert((err == VK_SUCCESS) && "vkCreateDescriptorSetLayout: Failed.");
++}
++
++inline static void create_descriptor_pool()
++{
++        VkDescriptorPoolSize pool_sizes[] = {
++            {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
++            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
++            {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
++            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
++            {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
++            {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
++            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
++            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
++            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
++            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
++            {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}};
++
++        VkDescriptorPoolCreateInfo pool_info;
++        static const VkDescriptorPoolCreateInfo EmptyVkDescriptorPoolCreateInfo;
++        pool_info = EmptyVkDescriptorPoolCreateInfo;
++        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
++        pool_info.poolSizeCount = sizeof(pool_sizes) / sizeof(pool_sizes[0]);
++        pool_info.pPoolSizes = pool_sizes;
++        pool_info.maxSets = pool_sizes[0].descriptorCount * pool_info.poolSizeCount;
++
++        VkResult err;
++        err = vkCreateDescriptorPool(device, &pool_info, NULL, &descriptor_pool);
++        assert((err == VK_SUCCESS) && "vkCreateDescriptorPool: Failed.");
++}
++
++inline static void allocate_descriptor_set(VkDescriptorSet *descriptor_set)
++{
++        VkDescriptorSetAllocateInfo alloc_info;
++        static const VkDescriptorSetAllocateInfo EmptyVkDescriptorSetAllocateInfo;
++        alloc_info = EmptyVkDescriptorSetAllocateInfo;
++        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
++        alloc_info.descriptorPool = descriptor_pool;
++        alloc_info.pSetLayouts = &descriptor_set_layout;
++        alloc_info.descriptorSetCount = 1;
++
++        VkResult err;
++        err = vkAllocateDescriptorSets(device, &alloc_info, descriptor_set);
++        assert((err == VK_SUCCESS) && "vkAllocateDescriptorSets: Failed.");
++}
++
++inline static void update_descriptor_set(uniform_map_t *map)
++{
++        VkDescriptorBufferInfo uniform_descriptors[1];
++        static const VkDescriptorBufferInfo EmptyVkDescriptorBufferInfo;
++        uniform_descriptors[0] = EmptyVkDescriptorBufferInfo;
++        uniform_descriptors[0].buffer = uniform_buffer;
++        uniform_descriptors[0].offset = FROM_UNIFORM_ALLOC(map->offset);
++        uniform_descriptors[0].range = FROM_UNIFORM_ALLOC(map->range);
++
++        VkWriteDescriptorSet write_descriptor_sets[1];
++        static const VkWriteDescriptorSet EmptyVkWriteDescriptorSet;
++        write_descriptor_sets[0] = EmptyVkWriteDescriptorSet;
++        write_descriptor_sets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++        write_descriptor_sets[0].dstSet = map->descriptor_set;
++        write_descriptor_sets[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++        write_descriptor_sets[0].dstBinding = 0;
++        write_descriptor_sets[0].pBufferInfo = uniform_descriptors;
++        write_descriptor_sets[0].descriptorCount = 1;
++
++        vkUpdateDescriptorSets(device, 1, write_descriptor_sets, 0, NULL);
++}
++
++void setup_model_instance(uniform_map_t *uniform_map)
++{
++        if (uniform_map->descriptor_set == VK_NULL_HANDLE)
++                allocate_descriptor_set(&uniform_map->descriptor_set);
++        update_descriptor_set(uniform_map);
++}
++
+ inline static void create_pipeline_layout()
+ {
+         VkPipelineLayoutCreateInfo pipeline_layout_create_info;
+@@ -523,6 +688,8 @@
+         pipeline_layout_create_info = EmptyVkPipelineLayoutCreateInfo;
+         pipeline_layout_create_info.sType =
+             VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
++        pipeline_layout_create_info.setLayoutCount = 1;
++        pipeline_layout_create_info.pSetLayouts = &descriptor_set_layout;
+ 
+         VkResult err;
+         err = vkCreatePipelineLayout(device, &pipeline_layout_create_info, NULL,
+@@ -530,6 +697,13 @@
+         assert((err == VK_SUCCESS) && "vkCreatePipelineLayout: Failed.");
+ }
+ 
++inline static void setup_descriptor_set()
++{
++        create_descriptor_set_layout();
++        create_descriptor_pool();
++        create_pipeline_layout();
++}
++
+ inline static void create_vertex_buffer()
+ {
+         VkBufferCreateInfo buffer_info_create;
+@@ -946,10 +1120,20 @@
+         vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer,
+                                &ZeroVkDeviceSize);
+ 
+-        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+-                          graphics_pipelines[0]);
++        data_model_instance_t *ptr =
++            list_entry(data_model_instances.next, data_model_instance_t, list);
++        vkCmdBindPipeline(
++            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
++            graphics_pipelines[data_materials[data_models[ptr->model].material]
++                                   .shader]);
++
++        vkCmdBindDescriptorSets(
++            command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
++            &ptr->uniform_map->descriptor_set,
++            0, NULL);
+ 
+-        vkCmdDraw(command_buffer, data_model_vertex_count, 1, 0, 0);
++        vkCmdDraw(command_buffer, data_models[ptr->model].count, 1,
++                  data_models[ptr->model].first, 0);
+ 
+         vkCmdEndRenderPass(command_buffer);
+ 
+@@ -1023,6 +1207,8 @@
+         {
+                 glfwPollEvents();
+ 
++                data_update();
++
+                 uint32_t active_swapchain_image_id;
+                 get_next_swapchain_image(queue, &active_swapchain_image_id);
+ 
+@@ -1068,6 +1254,19 @@
+         vertex_buffer = VK_NULL_HANDLE;
+         vkDestroyPipelineLayout(device, pipeline_layout, NULL);
+         pipeline_layout = VK_NULL_HANDLE;
++        vkDestroyDescriptorPool(device, descriptor_pool, NULL);
++        descriptor_pool = VK_NULL_HANDLE;
++        list_entry(data_model_instances.next, data_model_instance_t, list)
++            ->uniform_map->descriptor_set = VK_NULL_HANDLE;
++        vkDestroyDescriptorSetLayout(device, descriptor_set_layout, NULL);
++        descriptor_set_layout = VK_NULL_HANDLE;
++        vkUnmapMemory(device, uniform_buffer_memmory);
++        list_entry(data_model_instances.next, data_model_instance_t, list)->ubo =
++            NULL;
++        vkFreeMemory(device, uniform_buffer_memmory, NULL);
++        uniform_buffer_memmory = VK_NULL_HANDLE;
++        vkDestroyBuffer(device, uniform_buffer, NULL);
++        uniform_buffer = VK_NULL_HANDLE;
+         for (size_t i = 0; i < swapchain_image_count; i++)
+         {
+                 vkDestroyFramebuffer(device, framebuffers[i], NULL);
+@@ -1118,7 +1317,8 @@
+ 
+         create_framebuffers(swapchain_image_count);
+ 
+-        create_pipeline_layout();
++        setup_uniform_buffer(gpu_memory_properties);
++        setup_descriptor_set();
+ 
+         setup_vertex_buffer(gpu_memory_properties);
+ 
+@@ -1127,6 +1327,9 @@
+         VkPipeline graphics_pipelines[] = {VK_NULL_HANDLE};
+         setup_materials(vert_modules, frag_modules, graphics_pipelines);
+ 
++        data_setup_model_instance = setup_model_instance;
++        data_init(extent);
++
+         create_command_pool(queue_family_index);
+         blocking_render_loop(queue_family_index, graphics_pipelines);
+ 
