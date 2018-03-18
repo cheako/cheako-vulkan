@@ -1,0 +1,335 @@
+diff -bNur 0005texture/data_bulk.c 0006multi-model/data_bulk.c
+--- 0005texture/data_bulk.c	2019-03-03 15:08:52.164917190 -0600
++++ 0006multi-model/data_bulk.c	2019-03-03 15:08:52.168916321 -0600
+@@ -223,8 +223,9 @@
+         struct
+         {
+                 uint32_t first, second, third;
+-        } cube[12];
+-} *data_model_index = &(struct data_model_index){{
++        } cube[12], other_cube[12];
++} *data_model_index = &(struct data_model_index){
++    {
+     {2, 0, 1}, // A
+     {2, 1, 3},
+     {12, 4, 5}, // B
+@@ -237,7 +238,22 @@
+     {18, 11, 19},
+     {22, 20, 21}, // F
+     {22, 21, 23},
+-}};
++    },
++    {
++        {2, 0, 1}, // A
++        {2, 1, 3},
++        {12, 4, 5}, // B
++        {12, 5, 13},
++        {14, 6, 7}, // C
++        {14, 7, 15},
++        {16, 8, 9}, // D
++        {16, 9, 17},
++        {18, 10, 11}, // E
++        {18, 11, 19},
++        {22, 20, 21}, // F
++        {22, 21, 23},
++    },
++};
+ const VkDeviceSize data_model_index_size = sizeof(*data_model_index);
+ 
+ data_model_t data_models[] = {
+@@ -247,8 +263,16 @@
+         sizeof(data_model_index->cube) / sizeof(uint32_t),
+         0,
+     },
++    {
++        "Other Cube",
++        offsetof(struct data_model_index, other_cube) / sizeof(uint32_t),
++        sizeof(data_model_index->other_cube) / sizeof(uint32_t),
++        0,
++    },
+ };
+ 
++mat4 *get_model_0(void *p) { return &((material_0_ubo_t *)p)->model; }
++
+ #define DMTCLEAR                                                                      \
+         {                                                                             \
+                 {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, \
+@@ -295,6 +319,7 @@
+         "Example",
+         0,
+         sizeof(material_0_ubo_t),
++        get_model_0,
+         VK_FORMAT_R8G8B8A8_UNORM,
+         8 * 4,
+         8 * 3,
+diff -bNur 0005texture/data.h 0006multi-model/data.h
+--- 0005texture/data.h	2019-03-03 15:08:52.164917190 -0600
++++ 0006multi-model/data.h	2019-03-03 15:08:52.168916321 -0600
+@@ -55,6 +55,8 @@
+ typedef struct data_model_instance {
+   char *name;
+   size_t model;
++  void (*update)(struct data_model_instance *, double);
++  void *closure;
+   struct list_head list;
+   void *ubo;
+   uniform_map_t *uniform_map;
+@@ -73,6 +75,7 @@
+   char *name;
+   size_t shader;
+   VkDeviceSize ubo_vertex_shader_size;
++  mat4 *(*get_model)(void *);
+   VkFormat texture_format;
+   uint32_t texture_width;
+   uint32_t texture_height;
+diff -bNur 0005texture/libdata.c 0006multi-model/libdata.c
+--- 0005texture/libdata.c	2019-03-03 15:08:52.168916321 -0600
++++ 0006multi-model/libdata.c	2019-03-03 15:08:52.168916321 -0600
+@@ -32,19 +32,43 @@
+      }},
+ };
+ 
+-struct list_head data_model_instances;
+-struct
++void shoot_forward(data_model_instance_t *ptr, double t)
+ {
+-        data_model_instance_t obj;
+-} model_instance = {
+-    {"Object",
++        mat4 rot0,
++            *model =
++                data_materials[data_models[ptr->model].material].get_model(ptr->ubo);
++        glm_translate_z(*model, 3 * t);
++        glm_rotate_z(*model, t, rot0);
++        glm_mat4_copy(rot0, *model);
++}
++
++typedef struct
++{
++        data_model_instance_t obj, other_obj;
++} model_instance_t;
++model_instance_t model_instance;
++struct list_head data_model_instances = {&(model_instance.obj.list),
++                                         &(model_instance.other_obj.list)};
++model_instance_t model_instance = {
++    {
++        "Object",
+      0,
+-     {&(data_model_instances), &(data_model_instances)},
+      NULL,
+-     NULL},
++        NULL,
++        {&(model_instance.other_obj.list), &(data_model_instances)},
++        NULL,
++        VK_NULL_HANDLE,
++    },
++    {
++        "Other Object",
++        1,
++        shoot_forward,
++        NULL,
++        {&(data_model_instances), &(model_instance.obj.list)},
++        NULL,
++        VK_NULL_HANDLE,
++    },
+ };
+-struct list_head data_model_instances = {&(model_instance.obj.list),
+-                                         &(model_instance.obj.list)};
+ 
+ uniform_map_t starting_map;
+ struct list_head uniform_maps = {&(starting_map.list), &(starting_map.list)};
+@@ -130,13 +154,16 @@
+ 
+ mat4 projection;
+ mat4 view;
+-inline static void update_vp(material_0_ubo_t *ubo_0)
++inline static void update_vp(material_0_ubo_t *ubo_0, material_0_ubo_t *ubo_1)
+ {
++        glm_vec_copy(ubo_0->viewPos, ubo_1->viewPos);
++
+         glm_lookat(ubo_0->viewPos,
+                    (vec3){ubo_0->viewPos[0] + sinf(center_dir), ubo_0->viewPos[1],
+                           ubo_0->viewPos[2] + cosf(center_dir)},
+                    GLM_YUP, view);
+         glm_mat4_mul(projection, view, ubo_0->vp);
++        glm_mat4_copy(ubo_0->vp, ubo_1->vp);
+ }
+ 
+ /*
+@@ -148,12 +175,12 @@
+ 
+ void data_init(VkExtent2D extent)
+ {
+-        material_0_ubo_t *ubo_0;
+-        data_model_instance_t *inst =
+-            list_entry(data_model_instances.next, data_model_instance_t, list);
+-
++        material_0_ubo_t *ubo_0, *ubo_1;
++        data_model_instance_t *inst;
++        list_for_each_entry(inst, &data_model_instances, list)
+         setup_model_instance(inst);
+-        ubo_0 = inst->ubo;
++        ubo_0 = (list_entry(data_model_instances.next, data_model_instance_t, list))->ubo;
++        ubo_1 = (list_entry(data_model_instances.prev, data_model_instance_t, list))->ubo;
+ 
+         glfwSetKeyCallback(data_window, key_callback);
+ 
+@@ -185,12 +212,16 @@
+                      oglproj, projection);
+ #endif
+ 
+-        update_vp(ubo_0);
++        update_vp(ubo_0, ubo_1);
++
++        *ubo_1 = *ubo_0;
++        glm_rotate_y(GLM_MAT4_IDENTITY, CGLM_PI / 2, ubo_1->model);
+ 
+         previous_frame = glfwGetTime();
+ }
+ 
+-inline static void handle_input(double this_frame, material_0_ubo_t *ubo_0)
++inline static void handle_input(double this_frame, material_0_ubo_t *ubo_0,
++                                material_0_ubo_t *ubo_1)
+ {
+         float diagnal2 = 1;
+         bool need_lookat = false;
+@@ -224,18 +255,107 @@
+         }
+ 
+         if (need_lookat)
+-                update_vp(ubo_0);
++                update_vp(ubo_0, ubo_1);
++}
++
++void _glm_atan3(vec3 zvec, float zopposite, float zadjacent, vec3 rot)
++{
++        rot[0] = atan2f(zvec[1], zvec[2]);
++        rot[1] = atan2f(zvec[0], fabsf(zvec[2]));
++        rot[2] = atan2f(zopposite, zadjacent);
++}
++
++void _glm_decompose(mat4 model, vec3 pos, vec3 rot, vec3 zvec, float *zopposite,
++                    float *zadjacent)
++{
++        mat4 rot0, rot1;
++        vec4 mul1, mul2;
++        if (pos)
++        {
++                vec4 mul0;
++                glm_mat4_mulv(model, (vec4){0.0f, 0.0f, 0.0f, 1.0f}, mul0);
++                glm_vec_copy(mul0, pos);
++        }
++        glm_mat4_mulv(model, (vec4){0.0f, 0.0f, 1.0f, 0.0f}, mul1);
++        glm_rotate_y(model, -atan2f(mul1[0], fabsf(mul1[2])), rot0);
++        glm_rotate_x(rot0, -atan2f(mul1[1], mul1[2]), rot1);
++        glm_mat4_mulv(rot1, (vec4){0.0f, 1.0f, 0.0f, 0.0f}, mul2);
++        if (rot)
++                _glm_atan3(mul1, mul2[2], mul2[1], rot);
++        if (zvec)
++                glm_vec_copy(mul1, zvec);
++        if (zopposite && zadjacent)
++        {
++                *zopposite = mul2[2];
++                *zadjacent = mul2[1];
++        }
++}
++
++inline static void take_turn(data_model_instance_t *ptr, double this_frame)
++{
++        if (ptr->update)
++        {
++                ptr->update(ptr, this_frame - previous_frame);
++                /* Check out of bounds and reflect. */
++                {
++                        vec3 pos, rot;
++                        mat4 *model =
++                            data_materials[data_models[ptr->model].material].get_model(ptr->ubo);
++                        _glm_decompose(*model, pos, rot, NULL, NULL, NULL);
++                        bool new_model = false;
++                        for (size_t i = 0; i < 3; i++)
++                        {
++#define BOUND 7.0f
++                                if (pos[i] < -BOUND || pos[i] > BOUND)
++                                {
++                                        switch (i)
++                                        {
++                                        case 0:
++                                                rot[1] = -rot[1];
++                                                break;
++                                        case 1:
++                                                rot[0] = -rot[0];
++                                                break;
++                                        case 2:
++                                                rot[1] = CGLM_PI - rot[1];
++                                                break;
++                                        default:
++                                                assert(0 && "Out of bounds.");
++                                        }
++                                        pos[i] += pos[i] < -BOUND ? (pos[i] + BOUND) * -2.0f
++                                                                  : (pos[i] - BOUND) * -2.0f;
++                                        new_model = true;
++                                }
++                        }
++                        if (new_model)
++                        {
++                                mat4 rot0, rot1, trans0;
++                                glm_rotate_x(GLM_MAT4_IDENTITY, rot[0], rot0);
++                                glm_rotate_y(rot0, rot[1], rot1);
++                                glm_rotate_z(rot1, rot[2], rot0);
++                                glm_translate_make(trans0, pos);
++                                glm_mat4_mul(trans0, rot0, *model);
++                        }
++                }
++        }
+ }
+ 
+ void data_update()
+ {
+-        material_0_ubo_t *ubo_0 =
+-            list_entry(data_model_instances.next, data_model_instance_t, list)->ubo;
++        material_0_ubo_t *ubo_0 = list_entry(data_model_instances.next,
++                                             data_model_instance_t, list)
++                                      ->ubo,
++                         *ubo_1 = list_entry(data_model_instances.next->next,
++                                             data_model_instance_t, list)
++                                      ->ubo;
++
+         double this_frame = glfwGetTime();
+ 
+-        handle_input(this_frame, ubo_0);
++        handle_input(this_frame, ubo_0, ubo_1);
+ 
+-        /* TODO: Take turns. */
++        data_model_instance_t *ptr;
++        list_for_each_entry(ptr, &data_model_instances, list)
++            take_turn(ptr, this_frame);
+ 
+         if (0)
+         {
+diff -bNur 0005texture/vulkan.c 0006multi-model/vulkan.c
+--- 0005texture/vulkan.c	2019-03-07 12:28:47.471919792 -0600
++++ 0006multi-model/vulkan.c	2019-03-07 12:31:46.183440860 -0600
+@@ -1381,8 +1381,6 @@
+         pipeline_layout = VK_NULL_HANDLE;
+         vkDestroyDescriptorPool(device, descriptor_pool, NULL);
+         descriptor_pool = VK_NULL_HANDLE;
+-        list_entry(data_model_instances.next, data_model_instance_t, list)
+-            ->uniform_map->descriptor_set = VK_NULL_HANDLE;
+         vkDestroyDescriptorSetLayout(device, descriptor_set_layout, NULL);
+         descriptor_set_layout = VK_NULL_HANDLE;
+         vkDestroySampler(device, texture_image_sampler, NULL);
+@@ -1393,8 +1391,12 @@
+         texture_image_allocations[0] = VK_NULL_HANDLE;
+         texture_images[0] = VK_NULL_HANDLE;
+         vmaUnmapMemory(allocator, uniform_buffer_allocation);
+-        list_entry(data_model_instances.next, data_model_instance_t, list)->ubo =
+-            NULL;
++        data_model_instance_t *ptr;
++        list_for_each_entry(ptr, &data_model_instances, list)
++        {
++                ptr->ubo = NULL;
++                ptr->uniform_map->descriptor_set = VK_NULL_HANDLE;
++        }
+         vmaDestroyBuffer(allocator, uniform_buffer, uniform_buffer_allocation);
+         uniform_buffer_allocation = NULL;
+         uniform_buffer = VK_NULL_HANDLE;

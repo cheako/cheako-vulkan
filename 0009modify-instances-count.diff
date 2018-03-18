@@ -1,0 +1,138 @@
+diff -bNur 0008multi-material/data_bulk.c 0009modify-instances-count/data_bulk.c
+--- 0008multi-material/data_bulk.c	2019-03-03 15:08:52.172915452 -0600
++++ 0009modify-instances-count/data_bulk.c	2019-03-03 15:08:52.176914583 -0600
+@@ -265,7 +265,7 @@
+         0,
+     },
+     {
+-        "Other Cube",
++        "Bullet",
+         offsetof(struct data_model_index, other_cube) / sizeof(uint32_t),
+         sizeof(data_model_index->other_cube) / sizeof(uint32_t),
+         1,
+diff -bNur 0008multi-material/libdata.c 0009modify-instances-count/libdata.c
+--- 0008multi-material/libdata.c	2019-03-03 15:08:52.176914583 -0600
++++ 0009modify-instances-count/libdata.c	2019-03-03 15:08:52.180913714 -0600
+@@ -1,15 +1,23 @@
+ #include "data_bulk.h"
++#include <assert.h>
+ #include <math.h>
+ #include <stdbool.h>
++#include <string.h>
++
++inline static void player_shoot();
+ 
+ void key_callback(GLFWwindow *window, int key, int scancode, int action,
+                   int mods)
+ {
++        if (action == GLFW_PRESS)
+         switch (key)
+         {
+         case GLFW_KEY_ESCAPE:
+                 glfwSetWindowShouldClose(window, true);
+                 break;
++                case GLFW_KEY_X:
++                        player_shoot();
++                        break;
+         }
+ }
+ 
+@@ -65,33 +73,60 @@
+         glm_mat4_copy(rot0, *model);
+ }
+ 
++inline static void setup_model_instance(data_model_instance_t *inst);
+ #define SUBO data_model_shared_ubo
+ struct shared_ubo *SUBO = NULL;
++inline static void player_shoot()
++{
++        data_model_instance_t *this_instance = NULL,
++                              bullet_instance = {
++                                  "Bullet Object",
++                                  1,
++                                  shoot_forward,
++                                  NULL,
++                                  {NULL, NULL},
++                                  NULL,
++                                  VK_NULL_HANDLE,
++                              };
++
++        this_instance = malloc(sizeof(bullet_instance));
++        assert(this_instance && "Out of memory.");
++        *this_instance = bullet_instance;
++        setup_model_instance(this_instance);
++
++        {
++                material_1_ubo_t *this_ubo = this_instance->ubo;
++                {
++                        static const material_1_ubo_t empty_data_material_ubo_s;
++                        *this_ubo = empty_data_material_ubo_s;
++                }
++                glm_mat4_copy(GLM_MAT4_IDENTITY, this_ubo->bones[0]);
++
++                {
++                        mat4 trans0;
++                        glm_translate_to(GLM_MAT4_IDENTITY, SUBO->viewPos, trans0);
++                        glm_rotate_y(trans0, center_dir, this_ubo->model);
++                        glm_translate_z(this_ubo->model, 1.25f);
++                }
++        }
++
++        list_add_tail(&this_instance->list, &data_model_instances);
++}
+ 
+ typedef struct
+ {
+         data_model_instance_t obj;
+-        data_model_instance_t other_obj;
+ } model_instance_t;
+ model_instance_t model_instance;
+ struct list_head data_model_instances = {&(model_instance.obj.list),
+-                                         &(model_instance.other_obj.list)};
++                                        &(model_instance.obj.list)};
+ model_instance_t model_instance = {
+     {
+         "Object",
+         0,
+         NULL,
+         NULL,
+-        {&(model_instance.other_obj.list), &(data_model_instances)},
+-        NULL,
+-        VK_NULL_HANDLE,
+-    },
+-    {
+-        "Other Object",
+-        1,
+-        shoot_forward,
+-        NULL,
+-        {&(data_model_instances), &(model_instance.obj.list)},
++        {&(data_model_instances), &(data_model_instances)},
+         NULL,
+         VK_NULL_HANDLE,
+     },
+@@ -201,12 +236,10 @@
+ 
+ void data_init(VkExtent2D extent)
+ {
+-        material_0_ubo_t *ubo_0, *ubo_1;
+-        data_model_instance_t *inst;
+-        list_for_each_entry(inst, &data_model_instances, list)
++        material_0_ubo_t *ubo_0;
++        data_model_instance_t *inst = list_entry(data_model_instances.next, data_model_instance_t, list);
+             setup_model_instance(inst);
+-        ubo_0 = (list_entry(data_model_instances.next, data_model_instance_t, list))->ubo;
+-        ubo_1 = (list_entry(data_model_instances.prev, data_model_instance_t, list))->ubo;
++        ubo_0 = inst->ubo;
+ 
+         glfwSetKeyCallback(data_window, key_callback);
+ 
+@@ -242,9 +275,6 @@
+ 
+         update_vp();
+ 
+-        *ubo_1 = *ubo_0;
+-        glm_rotate_y(GLM_MAT4_IDENTITY, CGLM_PI / 2, ubo_1->model);
+-
+         previous_frame = glfwGetTime();
+ }
+ 

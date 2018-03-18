@@ -1,0 +1,10 @@
+#include "data.h"
+
+const uint8_t material_shader_0_vert_spv[] = {
+syscmd(`xxd -i < 0_vert.spv')dnl
+};
+const size_t material_shader_0_vert_size = sizeof(material_shader_0_vert_spv);
+const uint8_t material_shader_0_frag_spv[] = {
+syscmd(`xxd -i < 0_frag.spv')dnl
+};
+const size_t material_shader_0_frag_size = sizeof(material_shader_0_frag_spv);
