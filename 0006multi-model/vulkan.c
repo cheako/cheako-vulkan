@@ -1,6 +1,7 @@
 #include "data.h"
 #include <assert.h>
 #include <string.h>
+#include <vk_mem_alloc.h>
 
 VkExtent2D extent = {.width = 800, .height = 600};
 
@@ -10,26 +11,27 @@ VkExtent2D extent = {.width = 800, .height = 600};
 VkInstance instance = VK_NULL_HANDLE;
 VkSurfaceKHR surface = VK_NULL_HANDLE;
 VkDevice device = VK_NULL_HANDLE;
+VmaAllocator allocator;
 VkSwapchainKHR swapchain = VK_NULL_HANDLE;
 VkImage swapchain_images[3] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
 VkImageView swapchain_image_views[3] = {VK_NULL_HANDLE, VK_NULL_HANDLE,
                                         VK_NULL_HANDLE};
 VkImage depth_stencil_image = VK_NULL_HANDLE;
-VkDeviceMemory depth_stencil_image_memory = VK_NULL_HANDLE;
+VmaAllocation depth_stencil_image_allocation = NULL;
 VkImageView depth_stencil_image_view = VK_NULL_HANDLE;
 VkRenderPass render_pass = VK_NULL_HANDLE;
 VkFramebuffer framebuffers[3] = {VK_NULL_HANDLE, VK_NULL_HANDLE,
                                  VK_NULL_HANDLE};
 VkBuffer uniform_buffer = VK_NULL_HANDLE;
-VkDeviceMemory uniform_buffer_memmory = VK_NULL_HANDLE;
+VmaAllocation uniform_buffer_allocation = NULL;
 VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
 VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
 VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
 VkSampler texture_image_sampler;
 VkBuffer vertex_buffer = VK_NULL_HANDLE;
-VkDeviceMemory vertex_buffer_memmory = VK_NULL_HANDLE;
+VmaAllocation vertex_buffer_allocation = NULL;
 VkBuffer index_buffer = VK_NULL_HANDLE;
-VkDeviceMemory index_buffer_memmory = VK_NULL_HANDLE;
+VmaAllocation index_buffer_allocation = NULL;
 VkImageView *texture_image_views;
 VkCommandPool command_pool = VK_NULL_HANDLE;
 VkSemaphore wait_semaphore = VK_NULL_HANDLE;
@@ -82,8 +84,7 @@ inline static void init_create_window()
 }
 
 inline static void
-find_device_surface(VkPhysicalDevice *gpu,
-                    VkPhysicalDeviceMemoryProperties *gpu_memory_properties)
+find_device_surface(VkPhysicalDevice *gpu)
 {
         uint32_t gpu_count;
         VkResult err;
@@ -114,8 +115,6 @@ find_device_surface(VkPhysicalDevice *gpu,
                                 glfwGetWindowSize(data_window, &width, &height);
                                 extent = (VkExtent2D){.width = width, .height = height};
                         }
-
-                        vkGetPhysicalDeviceMemoryProperties(*gpu, gpu_memory_properties);
                 }
                 assert((*gpu != VK_NULL_HANDLE) &&
                        "Vulkan ERROR: Usable device not found.");
@@ -340,6 +339,19 @@ inline static void choose_depth_stencil_format(VkPhysicalDevice gpu,
                     "stencil format.");
 }
 
+inline static void create_vma(VkPhysicalDevice gpu)
+{
+        VmaAllocatorCreateInfo allocatorInfo;
+        static const VmaAllocatorCreateInfo EmptyVmaAllocatorCreateInfo;
+        allocatorInfo = EmptyVmaAllocatorCreateInfo;
+        allocatorInfo.physicalDevice = gpu;
+        allocatorInfo.device = device;
+
+        VkResult err;
+        err = vmaCreateAllocator(&allocatorInfo, &allocator);
+        assert((err == VK_SUCCESS) && "vmaCreateAllocator: Faileld.");
+}
+
 inline static void create_depth_stencil_image(VkFormat depth_stencil_format)
 {
         VkImageCreateInfo image_create_info;
@@ -361,46 +373,14 @@ inline static void create_depth_stencil_image(VkFormat depth_stencil_format)
         image_create_info.pQueueFamilyIndices = NULL;
         image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
+        VmaAllocationCreateInfo alloc_create_info;
+        static const VmaAllocationCreateInfo EmptyVmaAllocationCreateInfo;
+        alloc_create_info = EmptyVmaAllocationCreateInfo;
+        alloc_create_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
         VkResult err;
-        err = vkCreateImage(device, &image_create_info, NULL, &depth_stencil_image);
+        err = vmaCreateImage(allocator, &image_create_info, &alloc_create_info, &depth_stencil_image, &depth_stencil_image_allocation, NULL);
         assert((err == VK_SUCCESS) && "vkCreateImage: Failed depth stencil.");
-}
-
-inline static void allocate_depth_stencil_memory(
-    VkPhysicalDeviceMemoryProperties gpu_memory_properties)
-{
-        VkMemoryRequirements image_memory_requirements;
-        vkGetImageMemoryRequirements(device, depth_stencil_image,
-                                     &image_memory_requirements);
-
-        VkMemoryAllocateInfo memory_allocate_info;
-        static const VkMemoryAllocateInfo EmptyVkMemoryAllocateInfo;
-        memory_allocate_info = EmptyVkMemoryAllocateInfo;
-        memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        memory_allocate_info.allocationSize = image_memory_requirements.size;
-
-        memory_allocate_info.memoryTypeIndex = UINT32_MAX;
-        for (size_t i = 0; i < gpu_memory_properties.memoryTypeCount; i++)
-        {
-                if ((image_memory_requirements.memoryTypeBits & (1 << i)) &&
-                    ((gpu_memory_properties.memoryTypes[i].propertyFlags &
-                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ==
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
-                {
-                        memory_allocate_info.memoryTypeIndex = i;
-                        break;
-                }
-        }
-        assert((memory_allocate_info.memoryTypeIndex != UINT32_MAX) &&
-               "Couldn't locate depth stencil memory.");
-
-        VkResult err;
-        err = vkAllocateMemory(device, &memory_allocate_info, NULL,
-                               &depth_stencil_image_memory);
-        assert((err == VK_SUCCESS) && "vkAllocateMemory: Failed depth stencil.");
-        err = vkBindImageMemory(device, depth_stencil_image,
-                                depth_stencil_image_memory, 0);
-        assert((err == VK_SUCCESS) && "vkBindImageMemory: Failed depth stencil.");
 }
 
 inline static void
@@ -431,12 +411,10 @@ create_depth_stencil_image_view(VkFormat depth_stencil_format)
 }
 
 inline static void setup_depth_stencil_image(
-    VkPhysicalDevice gpu, VkFormat *depth_stencil_format,
-    VkPhysicalDeviceMemoryProperties gpu_memory_properties)
+    VkPhysicalDevice gpu, VkFormat *depth_stencil_format)
 {
         choose_depth_stencil_format(gpu, depth_stencil_format);
         create_depth_stencil_image(*depth_stencil_format);
-        allocate_depth_stencil_memory(gpu_memory_properties);
         create_depth_stencil_image_view(*depth_stencil_format);
 }
 
@@ -534,57 +512,25 @@ inline static void create_uniform_buffer()
         buffer_info_create.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
         buffer_info_create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
+        VmaAllocationCreateInfo alloc_create_info;
+        static const VmaAllocationCreateInfo EmptyVmaAllocationCreateInfo;
+        alloc_create_info = EmptyVmaAllocationCreateInfo;
+        alloc_create_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        alloc_create_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+
         VkResult err;
-        err = vkCreateBuffer(device, &buffer_info_create, NULL, &uniform_buffer);
+        err = vmaCreateBuffer(allocator, &buffer_info_create, &alloc_create_info,
+                              &uniform_buffer, &uniform_buffer_allocation, NULL);
         assert((err == VK_SUCCESS) && "vkCreateBuffer: Failed uniform buffer.");
 }
 
-inline static void allocate_uniform_buffer(
-    VkPhysicalDeviceMemoryProperties gpu_memory_properties)
-{
-        VkMemoryRequirements mememory_requirements;
-        vkGetBufferMemoryRequirements(device, uniform_buffer, &mememory_requirements);
-
-        VkMemoryAllocateInfo allocate_info;
-        static const VkMemoryAllocateInfo EmptyVkMemoryAllocateInfo;
-        allocate_info = EmptyVkMemoryAllocateInfo;
-        allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocate_info.allocationSize = mememory_requirements.size;
-
-        allocate_info.memoryTypeIndex = UINT32_MAX;
-        for (size_t i = 0; i < gpu_memory_properties.memoryTypeCount; ++i)
-        {
-                if ((mememory_requirements.memoryTypeBits & (1 << i)) &&
-                    ((gpu_memory_properties.memoryTypes[i].propertyFlags &
-                      (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
-                     (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)))
-                {
-                        allocate_info.memoryTypeIndex = i;
-                        break;
-                }
-        }
-        assert((allocate_info.memoryTypeIndex != UINT32_MAX) &&
-               "Failed to find suitable memory type for uniform.");
-
-        VkResult err;
-        err = vkAllocateMemory(device, &allocate_info, NULL, &uniform_buffer_memmory);
-        assert((err == VK_SUCCESS) && "vkAllocateMemory: Failed uniform buffer.");
-
-        err = vkBindBufferMemory(device, uniform_buffer, uniform_buffer_memmory, 0);
-        assert((err == VK_SUCCESS) && "vkBindBufferMemory: Failed uniform buffer.");
-}
-
 inline static void
-setup_uniform_buffer(VkPhysicalDeviceMemoryProperties gpu_memory_properties)
+setup_uniform_buffer()
 {
         create_uniform_buffer();
-        allocate_uniform_buffer(gpu_memory_properties);
 
         VkResult err;
-        err = vkMapMemory(device, uniform_buffer_memmory, 0, UNIFORM_SIZE, 0,
-                          (void **)&data_uniform_ptr);
+        err = vmaMapMemory(allocator, uniform_buffer_allocation, (void **)&data_uniform_ptr);
         assert((err == VK_SUCCESS) && "vkMapMemory: Failed uniform buffer.");
 }
 
@@ -772,63 +718,30 @@ inline static void create_vertex_buffer()
         buffer_info_create.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         buffer_info_create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
+        VmaAllocationCreateInfo alloc_create_info;
+        static const VmaAllocationCreateInfo EmptyVmaAllocationCreateInfo;
+        alloc_create_info = EmptyVmaAllocationCreateInfo;
+        alloc_create_info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+
         VkResult err;
-        err = vkCreateBuffer(device, &buffer_info_create, NULL, &vertex_buffer);
-        assert((err == VK_SUCCESS) && "vkCreateBuffer: Failed vertex buffer.");
+        err = vmaCreateBuffer(allocator, &buffer_info_create, &alloc_create_info, &vertex_buffer, &vertex_buffer_allocation, NULL);
+        assert((err == VK_SUCCESS) && "vmaCreateBuffer: Failed vertex buffer.");
 }
 
 inline static void
-allocate_vertex_buffer(VkPhysicalDeviceMemoryProperties gpu_memory_properties)
-{
-        VkMemoryRequirements mememory_requirements;
-        vkGetBufferMemoryRequirements(device, vertex_buffer, &mememory_requirements);
-
-        VkMemoryAllocateInfo allocate_info;
-        static const VkMemoryAllocateInfo EmptyVkMemoryAllocateInfo;
-        allocate_info = EmptyVkMemoryAllocateInfo;
-        allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocate_info.allocationSize = mememory_requirements.size;
-
-        allocate_info.memoryTypeIndex = UINT32_MAX;
-        for (size_t i = 0; i < gpu_memory_properties.memoryTypeCount; ++i)
-        {
-                if ((mememory_requirements.memoryTypeBits & (1 << i)) &&
-                    ((gpu_memory_properties.memoryTypes[i].propertyFlags &
-                      (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
-                     (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)))
-                {
-                        allocate_info.memoryTypeIndex = i;
-                        break;
-                }
-        }
-        assert((allocate_info.memoryTypeIndex != UINT32_MAX) &&
-               "Failed to find suitable memory type for vertex.");
-
-        VkResult err;
-        err = vkAllocateMemory(device, &allocate_info, NULL, &vertex_buffer_memmory);
-        assert((err == VK_SUCCESS) && "vkAllocateMemory: Failed vertex buffer.");
-
-        err = vkBindBufferMemory(device, vertex_buffer, vertex_buffer_memmory, 0);
-        assert((err == VK_SUCCESS) && "vkBindBufferMemory: Failed vertex buffer.");
-}
-
-inline static void
-setup_vertex_buffer(VkPhysicalDeviceMemoryProperties gpu_memory_properties)
+setup_vertex_buffer()
 {
         create_vertex_buffer();
-        allocate_vertex_buffer(gpu_memory_properties);
 
         void *data;
         VkResult err;
-        err = vkMapMemory(device, vertex_buffer_memmory, 0, data_model_vertex_size, 0,
-                          &data);
-        assert((err == VK_SUCCESS) && "vkMapMemory: Failed vertex buffer.");
+        err = vmaMapMemory(allocator, vertex_buffer_allocation, &data);
+        assert((err == VK_SUCCESS) && "vmaMapMemory: Failed vertex buffer.");
 
         memcpy(data, data_model_vertex, data_model_vertex_size);
 
-        vkUnmapMemory(device, vertex_buffer_memmory);
+        vmaUnmapMemory(allocator, vertex_buffer_allocation);
+        vmaFlushAllocation(allocator, vertex_buffer_allocation, 0, data_model_vertex_size);
 }
 
 inline static void create_index_buffer()
@@ -841,66 +754,33 @@ inline static void create_index_buffer()
         buffer_info_create.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         buffer_info_create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
+        VmaAllocationCreateInfo alloc_create_info;
+        static const VmaAllocationCreateInfo EmptyVmaAllocationCreateInfo;
+        alloc_create_info = EmptyVmaAllocationCreateInfo;
+        alloc_create_info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+
         VkResult err;
-        err = vkCreateBuffer(device, &buffer_info_create, NULL, &index_buffer);
-        assert((err == VK_SUCCESS) && "vkCreateBuffer: Failed index buffer.");
+        err = vmaCreateBuffer(allocator, &buffer_info_create, &alloc_create_info, &index_buffer, &index_buffer_allocation, NULL);
+        assert((err == VK_SUCCESS) && "vmaCreateBuffer: Failed index buffer.");
 }
 
 inline static void
-allocate_index_buffer(VkPhysicalDeviceMemoryProperties gpu_memory_properties)
-{
-        VkMemoryRequirements mememory_requirements;
-        vkGetBufferMemoryRequirements(device, index_buffer, &mememory_requirements);
-
-        VkMemoryAllocateInfo allocate_info;
-        static const VkMemoryAllocateInfo EmptyVkMemoryAllocateInfo;
-        allocate_info = EmptyVkMemoryAllocateInfo;
-        allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocate_info.allocationSize = mememory_requirements.size;
-
-        allocate_info.memoryTypeIndex = UINT32_MAX;
-        for (size_t i = 0; i < gpu_memory_properties.memoryTypeCount; ++i)
-        {
-                if ((mememory_requirements.memoryTypeBits & (1 << i)) &&
-                    ((gpu_memory_properties.memoryTypes[i].propertyFlags &
-                      (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
-                     (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)))
-                {
-                        allocate_info.memoryTypeIndex = i;
-                        break;
-                }
-        }
-        assert((allocate_info.memoryTypeIndex != UINT32_MAX) &&
-               "Failed to find suitable memory type for index.");
-
-        VkResult err;
-        err = vkAllocateMemory(device, &allocate_info, NULL, &index_buffer_memmory);
-        assert((err == VK_SUCCESS) && "vkAllocateMemory: Failed index buffer.");
-
-        err = vkBindBufferMemory(device, index_buffer, index_buffer_memmory, 0);
-        assert((err == VK_SUCCESS) && "vkBindBufferMemory: Failed index buffer.");
-}
-
-inline static void
-setup_index_buffer(VkPhysicalDeviceMemoryProperties gpu_memory_properties)
+setup_index_buffer()
 {
         create_index_buffer();
-        allocate_index_buffer(gpu_memory_properties);
 
         void *data;
         VkResult err;
-        err = vkMapMemory(device, index_buffer_memmory, 0, data_model_index_size, 0,
-                          &data);
-        assert((err == VK_SUCCESS) && "vkMapMemory: Failed index buffer.");
+        err = vmaMapMemory(allocator, index_buffer_allocation, &data);
+        assert((err == VK_SUCCESS) && "vmaMapMemory: Failed index buffer.");
 
         memcpy(data, data_model_index, data_model_index_size);
 
-        vkUnmapMemory(device, index_buffer_memmory);
+        vmaUnmapMemory(allocator, index_buffer_allocation);
+        vmaFlushAllocation(allocator, index_buffer_allocation, 0, data_model_index_size);
 }
 
-inline static void create_texture_images(VkImage *texture_images)
+inline static void create_texture_images(VkImage *texture_images, VmaAllocation *texture_image_allocations)
 {
         VkImageCreateInfo image_create_info;
         static const VkImageCreateInfo EmptyVkImageViewCreateInfo;
@@ -921,65 +801,30 @@ inline static void create_texture_images(VkImage *texture_images)
         image_create_info.pQueueFamilyIndices = NULL;
         image_create_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
 
+        VmaAllocationCreateInfo alloc_create_info;
+        static const VmaAllocationCreateInfo EmptyVmaAllocationCreateInfo;
+        alloc_create_info = EmptyVmaAllocationCreateInfo;
+        alloc_create_info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+
         VkResult err;
-        err = vkCreateImage(device, &image_create_info, NULL, &texture_images[0]);
+        err = vmaCreateImage(allocator, &image_create_info, &alloc_create_info, &texture_images[0], &texture_image_allocations[0], NULL);
         assert((err == VK_SUCCESS) && "vkCreateImage: Failed texture.");
 }
 
 inline static void
-allocate_texture_image(VkImage texture_image,
-                       VkPhysicalDeviceMemoryProperties gpu_memory_properties,
-                       VkDeviceMemory *texture_image_memory)
+setup_texture_images(VkImage *texture_images, VmaAllocation *texture_image_allocations)
 {
-        VkMemoryAllocateInfo memory_allocate_info;
-        static const VkMemoryAllocateInfo EmptyVkMemoryAllocateInfo;
-        memory_allocate_info = EmptyVkMemoryAllocateInfo;
-        memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-
-        VkMemoryRequirements image_memory_requirements;
-        vkGetImageMemoryRequirements(device, texture_image,
-                                     &image_memory_requirements);
-        memory_allocate_info.allocationSize = image_memory_requirements.size;
-
-        memory_allocate_info.memoryTypeIndex = UINT32_MAX;
-        for (size_t i = 0; i < gpu_memory_properties.memoryTypeCount; i++)
-        {
-                if ((image_memory_requirements.memoryTypeBits & (1 << i)) &&
-                    ((gpu_memory_properties.memoryTypes[i].propertyFlags &
-                      (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
-                     (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)))
-                {
-                        memory_allocate_info.memoryTypeIndex = i;
-                        break;
-                }
-        }
-        assert((memory_allocate_info.memoryTypeIndex != UINT32_MAX) &&
-               "Couldn't locate texture memory.");
-
-        VkResult err;
-        err = vkAllocateMemory(device, &memory_allocate_info, NULL,
-                               texture_image_memory);
-        assert((err == VK_SUCCESS) && "vkAllocateMemory: Failed texture.");
-        err = vkBindImageMemory(device, texture_image, *texture_image_memory, 0);
-        assert((err == VK_SUCCESS) && "vkBindImageMemory: Failed texture.");
-}
-
-inline static void
-setup_texture_images(VkImage *texture_images,
-                     VkPhysicalDeviceMemoryProperties gpu_memory_properties,
-                     VkDeviceMemory *texture_image_memorys)
-{
-        create_texture_images(texture_images);
-        allocate_texture_image(texture_images[0], gpu_memory_properties,
-                               &texture_image_memorys[0]);
+        create_texture_images(texture_images, texture_image_allocations);
 
         void *data;
-        vkMapMemory(device, texture_image_memorys[0], 0,
-                    data_materials[0].texture_size, 0, &data);
+        VkResult err;
+        err = vmaMapMemory(allocator, texture_image_allocations[0], &data);
+        assert((err == VK_SUCCESS) && "vmaMapMemory: Failed vertex buffer.");
+
         memcpy(data, data_materials[0].texture, data_materials[0].texture_size);
-        vkUnmapMemory(device, texture_image_memorys[0]);
+
+        vmaUnmapMemory(allocator, texture_image_allocations[0]);
+        vmaFlushAllocation(allocator, texture_image_allocations[0], 0, data_materials[0].texture_size);
 }
 
 inline static void create_image_views(VkImage *texture_images)
@@ -1010,11 +855,9 @@ inline static void create_image_views(VkImage *texture_images)
 
 inline static void
 setup_textures(VkImage *texture_images,
-               VkPhysicalDeviceMemoryProperties gpu_memory_properties,
-               VkDeviceMemory *texture_image_memorys)
+               VmaAllocation *texture_image_allocations)
 {
-        setup_texture_images(texture_images, gpu_memory_properties,
-                             texture_image_memorys);
+        setup_texture_images(texture_images, texture_image_allocations);
         create_image_views(texture_images);
 }
 
@@ -1202,13 +1045,12 @@ inline static void create_graphice_pipelines(VkShaderModule *vert_modules,
 }
 
 inline static void setup_materials(VkImage *texture_images,
-                                   VkPhysicalDeviceMemoryProperties gpu_memory_properties,
-                                   VkDeviceMemory *texture_image_memorys,
+                                   VmaAllocation *texture_image_allocations,
                                    VkShaderModule *vert_modules,
                                    VkShaderModule *frag_modules,
                                    VkPipeline *graphics_pipelines)
 {
-        setup_textures(texture_images, gpu_memory_properties, texture_image_memorys);
+        setup_textures(texture_images, texture_image_allocations);
         create_shaders(vert_modules, frag_modules);
         create_graphice_pipelines(vert_modules, frag_modules, graphics_pipelines);
 }
@@ -1509,7 +1351,7 @@ inline static void blocking_render_loop(uint32_t queue_family_index,
 }
 
 inline static void
-clean_up(VkImage *texture_images, VkDeviceMemory *texture_image_memorys,
+clean_up(VkImage *texture_images, VmaAllocation *texture_image_allocations,
          VkPipeline *graphics_pipelines, VkShaderModule *frag_modules,
          VkShaderModule *vert_modules, uint32_t swapchain_image_count)
 {
@@ -1529,13 +1371,11 @@ clean_up(VkImage *texture_images, VkDeviceMemory *texture_image_memorys,
         vert_modules[0] = VK_NULL_HANDLE;
         vkDestroyPipelineLayout(device, pipeline_layout, NULL);
         pipeline_layout = VK_NULL_HANDLE;
-        vkFreeMemory(device, index_buffer_memmory, NULL);
-        index_buffer_memmory = VK_NULL_HANDLE;
-        vkDestroyBuffer(device, index_buffer, NULL);
+        vmaDestroyBuffer(allocator, index_buffer, index_buffer_allocation);
+        index_buffer_allocation = NULL;
         index_buffer = VK_NULL_HANDLE;
-        vkFreeMemory(device, vertex_buffer_memmory, NULL);
-        vertex_buffer_memmory = VK_NULL_HANDLE;
-        vkDestroyBuffer(device, vertex_buffer, NULL);
+        vmaDestroyBuffer(allocator, vertex_buffer, vertex_buffer_allocation);
+        vertex_buffer_allocation = NULL;
         vertex_buffer = VK_NULL_HANDLE;
         vkDestroyPipelineLayout(device, pipeline_layout, NULL);
         pipeline_layout = VK_NULL_HANDLE;
@@ -1547,20 +1387,18 @@ clean_up(VkImage *texture_images, VkDeviceMemory *texture_image_memorys,
         texture_image_sampler = VK_NULL_HANDLE;
         vkDestroyImageView(device, texture_image_views[0], NULL);
         texture_image_views[0] = VK_NULL_HANDLE;
-        vkFreeMemory(device, texture_image_memorys[0], NULL);
-        texture_image_memorys[0] = VK_NULL_HANDLE;
-        vkDestroyImage(device, texture_images[0], NULL);
+        vmaDestroyImage(allocator, texture_images[0], texture_image_allocations[0]);
+        texture_image_allocations[0] = VK_NULL_HANDLE;
         texture_images[0] = VK_NULL_HANDLE;
-        vkUnmapMemory(device, uniform_buffer_memmory);
+        vmaUnmapMemory(allocator, uniform_buffer_allocation);
         data_model_instance_t *ptr;
         list_for_each_entry(ptr, &data_model_instances, list)
         {
                 ptr->ubo = NULL;
                 ptr->uniform_map->descriptor_set = VK_NULL_HANDLE;
         }
-        vkFreeMemory(device, uniform_buffer_memmory, NULL);
-        uniform_buffer_memmory = VK_NULL_HANDLE;
-        vkDestroyBuffer(device, uniform_buffer, NULL);
+        vmaDestroyBuffer(allocator, uniform_buffer, uniform_buffer_allocation);
+        uniform_buffer_allocation = NULL;
         uniform_buffer = VK_NULL_HANDLE;
         for (size_t i = 0; i < swapchain_image_count; i++)
         {
@@ -1573,8 +1411,11 @@ clean_up(VkImage *texture_images, VkDeviceMemory *texture_image_memorys,
         render_pass = VK_NULL_HANDLE;
         vkDestroyImageView(device, depth_stencil_image_view, NULL);
         depth_stencil_image_view = VK_NULL_HANDLE;
-        vkFreeMemory(device, depth_stencil_image_memory, NULL);
-        depth_stencil_image_memory = VK_NULL_HANDLE;
+        vmaDestroyImage(allocator, depth_stencil_image, depth_stencil_image_allocation);
+        depth_stencil_image_allocation = NULL;
+        depth_stencil_image = VK_NULL_HANDLE;
+        vmaDestroyAllocator(allocator);
+        allocator = NULL;
         vkDestroyImage(device, depth_stencil_image, NULL);
         depth_stencil_image = VK_NULL_HANDLE;
         vkDestroySwapchainKHR(device, swapchain, NULL);
@@ -1595,8 +1436,7 @@ int main(int argc, char *argv[])
 {
         init_create_window();
         VkPhysicalDevice gpu = VK_NULL_HANDLE;
-        VkPhysicalDeviceMemoryProperties gpu_memory_properties;
-        find_device_surface(&gpu, &gpu_memory_properties);
+        find_device_surface(&gpu);
 
         uint32_t queue_family_index;
         create_device_queu_family(gpu, &queue_family_index);
@@ -1606,26 +1446,28 @@ int main(int argc, char *argv[])
         uint32_t swapchain_image_count = 2;
         setup_swapchain(gpu, surface_format, &swapchain_image_count);
 
+        create_vma(gpu);
+
         VkFormat depth_stencil_format;
-        setup_depth_stencil_image(gpu, &depth_stencil_format, gpu_memory_properties);
+        setup_depth_stencil_image(gpu, &depth_stencil_format);
         create_render_pass(depth_stencil_format, surface_format);
 
         create_framebuffers(swapchain_image_count);
 
-        setup_uniform_buffer(gpu_memory_properties);
+        setup_uniform_buffer();
         setup_descriptor_set();
 
-        setup_vertex_buffer(gpu_memory_properties);
-        setup_index_buffer(gpu_memory_properties);
+        setup_vertex_buffer();
+        setup_index_buffer();
 
         VkImage texture_images[] = {VK_NULL_HANDLE};
-        VkDeviceMemory texture_image_memorys[] = {VK_NULL_HANDLE};
+        VmaAllocation texture_image_allocations[] = {VK_NULL_HANDLE};
         VkImageView _texture_image_views[] = {VK_NULL_HANDLE};
         texture_image_views = _texture_image_views;
         VkShaderModule vert_modules[] = {VK_NULL_HANDLE};
         VkShaderModule frag_modules[] = {VK_NULL_HANDLE};
         VkPipeline graphics_pipelines[] = {VK_NULL_HANDLE};
-        setup_materials(texture_images, gpu_memory_properties, texture_image_memorys, vert_modules, frag_modules, graphics_pipelines);
+        setup_materials(texture_images, texture_image_allocations, vert_modules, frag_modules, graphics_pipelines);
 
         data_setup_model_instance = setup_model_instance;
         data_init(extent);
@@ -1633,7 +1475,7 @@ int main(int argc, char *argv[])
         create_command_pool(queue_family_index);
         blocking_render_loop(queue_family_index, texture_images, graphics_pipelines);
 
-        clean_up(texture_images, texture_image_memorys, graphics_pipelines,
+        clean_up(texture_images, texture_image_allocations, graphics_pipelines,
                  frag_modules, vert_modules, swapchain_image_count);
         exit(0);
 }
